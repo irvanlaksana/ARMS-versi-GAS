@@ -1,0 +1,82 @@
+<!--
+  Panduan singkat untuk user yang melihat error
+  "loadWorkspaceLogo_ is not defined" di deployment Apps Script.
+  Tidak perlu ditambahkan ke Apps Script editor; hanya dokumentasi.
+-->
+<style>
+  body { font-family: Inter, system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 18px; color: #1f2937; line-height: 1.55; }
+  h1, h2, h3 { color: #4f46e5; }
+  code, pre { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  pre { padding: 12px; overflow-x: auto; }
+  .step { background: #eef2ff; border-left: 4px solid #4f46e5; padding: 12px 16px; margin: 16px 0; border-radius: 4px; }
+  .danger { background: #fee2e2; border-left-color: #dc2626; }
+  .ok { background: #d1fae5; border-left-color: #059669; }
+</style>
+<h1>Solusi Error: loadWorkspaceLogo_ is not defined</h1>
+<p>Error ini <strong>bukan</strong> dari file di repo ini (semua backend sudah digabung ke <code>Code.gs</code>). Error muncul di deployment Apps Script <strong>Anda</strong> karena masih ada:</p>
+<ul>
+  <li>File <code>Workspace.gs</code> atau <code>Crm.gs</code> lama di editor Apps Script Anda, atau</li>
+  <li>File HTML (<code>js_main.html</code>, <code>js_workspace.html</code>) versi lama di editor yang masih memanggil <code>google.script.run.loadWorkspaceLogo_</code>.</li>
+</ul>
+
+<h2>Langkah 1 — Diagnosa cepat</h2>
+<div class="step">
+  Buat file Script baru di editor Apps Script (klik <strong>+</strong> &rarr; <strong>Script</strong>), beri nama <code>diagnose_workspace_logo</code>, salin isi dari
+  <code>public/google-apps-script/diagnose_workspace_logo.gs</code> di repo.
+  Jalankan fungsi <code>diagnoseWorkspaceLogo</code>, lalu buka <strong>View &gt; Logs</strong>.
+</div>
+
+<h2>Langkah 2 — Bersihkan file lama</h2>
+<div class="step danger">
+  <strong>Wajib:</strong> Hapus file <code>Workspace.gs</code> dan <code>Crm.gs</code> lama dari editor.
+  Klik ikon <strong>⋮</strong> di sebelah nama file &rarr; <strong>Remove</strong>.
+  Pada versi baru, isinya sudah digabung ke <code>Code.gs</code>; membiarkannya akan menimpa fungsi baru.
+</div>
+
+<h2>Langkah 3 — Samakan file HTML dengan repo</h2>
+<div class="step">
+  Buka setiap file HTML di editor dan bandingkan dengan yang ada di
+  <code>public/google-apps-script/</code> di repo. Daftar file yang harus sama persis:
+  <ul>
+    <li><code>Code</code> (Code.gs)</li>
+    <li><code>Index</code></li>
+    <li><code>js_main</code></li>
+    <li><code>js_customer</code></li>
+    <li><code>js_crm</code></li>
+    <li><code>js_operations</code></li>
+    <li><code>js_letters</code></li>
+    <li><code>js_workspace</code></li>
+    <li><code>js_proposal</code></li>
+    <li><code>js_bulk</code></li>
+    <li><code>css_main</code></li>
+  </ul>
+  Cara tercepat: hapus semuanya, buat ulang dari awal dengan nama persis di atas, lalu salin isi dari repo.
+</div>
+
+<h2>Langkah 4 — Periksa appsscript.json</h2>
+<div class="step">
+  Klik <strong>Project Settings ⚙️</strong> &rarr; centang <strong>Show &quot;appsscript.json&quot; manifest file in editor</strong>.
+  Salin isi <code>appsscript.json</code> dari repo.
+  <strong>Penting:</strong> klik <strong>Save 💾</strong> (Ctrl+S) setelahnya.
+</div>
+
+<h2>Langkah 5 — Deploy versi baru</h2>
+<div class="step ok">
+  <strong>Deploy &gt; Manage deployments &gt; ✏️ Edit &gt; Version: New version &gt; Deploy</strong>.
+  Versi baru wajib di-deploy, <strong>reload paksa</strong> (Ctrl+Shift+R) halaman web app, baru klik <strong>Coba lagi</strong>.
+</div>
+
+<h2>Langkah 6 — Verifikasi</h2>
+<div class="step ok">
+  Buka URL <code>/exec</code>, tekan <strong>F12</strong> (DevTools) &rarr; tab <strong>Console</strong>.
+  Tidak boleh ada error merah. Kalau masih ada <code>loadWorkspaceLogo_ is not defined</code>,
+  berarti Langkah 2 atau 3 belum selesai: masih ada file lama di editor.
+</div>
+
+<h2>Masih error?</h2>
+<p>Beri tahu saya:</p>
+<ol>
+  <li>Daftar lengkap file di sidebar kiri editor Apps Script Anda.</li>
+  <li>Hasil log dari <code>diagnoseWorkspaceLogo()</code>.</li>
+  <li>Apakah Anda pernah <strong>paste-merge</strong> (menambah di bawah) <code>Code.gs</code> lama, atau benar-benar <strong>replace</strong> seluruh isinya?</li>
+</ol>
