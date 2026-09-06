@@ -12,9 +12,7 @@ Mode pratinjau menggunakan data fiktif Juni 2025 dengan persistence lokal. Konek
 
 Paket deployment lengkap ada di `public/google-apps-script/`:
 
-- `Code.gs`
-- `Crm.gs`
-- `Workspace.gs`
+- `Code.gs` (satu-satunya file backend: inti + CRM + workspace + proposal)
 - `Index.html`
 - `js_main.html`
 - `js_customer.html`
@@ -22,12 +20,13 @@ Paket deployment lengkap ada di `public/google-apps-script/`:
 - `js_operations.html`
 - `js_letters.html`
 - `js_workspace.html`
+- `js_proposal.html`
 - `js_bulk.html`
 - `css_main.html`
 - `appsscript.json`
 - `README.md`
 
-Frontend GAS menggunakan HTML, Vanilla JavaScript, dan Tailwind CDN, tanpa React build. Backend menginisialisasi sebelas sheet, menyediakan CRUD berelasi, menghitung ulang keuangan, dan memverifikasi akses Google. Panduan pemasangan, skema, aturan fee, keterbatasan, dan checklist uji tersedia di `public/google-apps-script/README.md`.
+Frontend GAS menggunakan HTML, Vanilla JavaScript, dan Tailwind CDN, tanpa React build. Backend menginisialisasi dua belas sheet (termasuk `Proposals`), menyediakan CRUD berelasi, menghitung ulang keuangan, dan memverifikasi akses Google. Seluruh fungsi server berada di satu file `Code.gs` sehingga deployment tidak lagi gagal karena file `Crm.gs`/`Workspace.gs` tertinggal (penyebab error `loadWorkspaceLogo_ is not defined`). Panduan pemasangan, skema, aturan fee, keterbatasan, dan checklist uji tersedia di `public/google-apps-script/README.md`.
 
 ## Pembaruan Form Debitur
 
@@ -65,15 +64,26 @@ Pengunggahan memakai ID request dan pemeriksaan referensi PDF sebelumnya untuk m
 
 - Tombol **Import Bulk Debitor** tersedia pada menu Debitur. Template `.xlsx`, pembacaan `.xlsx`/`.csv`, validasi seluruh baris, dan unduh error tersedia. Maksimal 5 MB / 300 baris. Tidak menimpa data lama.
 - Kontrak, telepon, dan NIK harus berupa teks agar angka nol awal tidak hilang. Formula ditolak. Total dihitung ulang dan diperiksa. Impor GAS menulis satu rentang setelah semua baris valid, dengan Script Lock dan ID batch untuk mencegah retry duplikat.
-- Tombol **Upload Logo** di kiri Pengaturan menerima PNG/JPG/WebP maksimal 2 MB, lalu mengecilkan gambar untuk identitas workspace. Nama perusahaan tampil di samping logo. Logo tidak dikirim otomatis ke generator eksternal.
-- Tim & Mitra memiliki posisi/jabatan, NIK opsional, dan Upload KTP. Nama pada dropdown tidak diberi akhiran Mitra DC. Jenis personel tetap dipertahankan pada data untuk kompatibilitas.
+- Pengaturan memakai satu workspace tunggal. Tombol **Upload Logo** menerima PNG/JPG/WebP maksimal 2 MB, dan blok **Kop surat perusahaan** menerima banner kop (disarankan lebar 1600 px, maks. 1 MB) yang dipakai pada cover proposal serta dokumen cetak. Nama perusahaan tampil di samping logo. Logo tidak dikirim otomatis ke generator eksternal.
+- Tim & Mitra memiliki posisi/jabatan, NIK opsional, Upload KTP, dan Upload SPPI (opsional). Kedua dokumen dapat diunduh dari tabel maupun detail personel. Nama pada dropdown tidak diberi akhiran Mitra DC. Jenis personel tetap dipertahankan pada data untuk kompatibilitas.
 - Register Client / Pemberi Kuasa menggunakan dua bagian dengan tinggi terbatas viewport, body scroll, serta header/footer tetap terlihat.
+
+## Proposal Kerja Sama
+
+Menu **Proposal** menyusun proposal kerja sama yang dapat diedit per halaman dan disimpan pada sheet `Proposals` (satu baris = satu proposal, isi halaman berupa JSON).
+
+- Template awal mengikuti contoh proposal jasa penagihan: cover, surat permohonan, company profile, daftar isi, BAB 1-9 (ringkasan eksekutif, profil, latar belakang, ruang lingkup, infrastruktur, kepatuhan, struktur tim & SDM, skema imbal jasa, penutup).
+- Setiap halaman dapat dipilih, diedit, ditambah, diduplikasi, dipindahkan, atau dihapus. Isi halaman disusun dari blok: kop surat, judul bagian, paragraf, daftar butir, tabel label-nilai, tabel, Tim & Mitra DC, dan tanda tangan.
+- Blok **Tim & Mitra DC** menampilkan data mitra (nama, jabatan, jenis personel, NIK opsional, rekening) beserta foto KTP dan foto sertifikat SPPI yang diambil dari Google Drive melalui menu Tim & Mitra.
+- Token teks tersedia di seluruh isian: `{agensi}`, `{klien}`, `{nomor}`, `{kota}`, `{tanggal}`, `{penandatangan}`, `{jabatan}`, `{kontak}`, `{telepon}`, `{email}`, `{alamat}`.
+- Kop surat dicetak penuh pada bagian atas cover, melewati batas margin kertas (full bleed) seperti contoh proposal. Bila kop belum diunggah, aplikasi mencetak kop teks otomatis dari identitas workspace.
+- Pratinjau kertas A4 tersedia di samping editor; tombol **Cetak / Simpan PDF** memakai dialog cetak browser (pilih "Save as PDF", ukuran A4, margin default/None).
 
 ## Reminder SK
 
 Dashboard menampilkan reminder untuk SK aktif: belum ada laporan, laporan perlu diperbarui, masa berlaku habis, atau kasus selesai tetapi SK masih aktif. Interval awal 3 hari dapat diubah menjadi 1-30 hari pada Pengaturan. Gunakan **Buat laporan** untuk Collections Log yang terhubung ke SK, atau **Update SK** untuk status/catatan. Perhitungan memakai tanggal hari ini (Asia/Jakarta), bukan filter grafik dashboard. Tidak mengirim notifikasi WhatsApp/email otomatis.
 
-Untuk memperbarui GAS lama, tambahkan `js_letters.html`, perbarui Code.gs, Workspace.gs, Index.html, js_main.html, dan CSS. Hapus file HTML js_repo dan js_generator yang tidak lagi dipakai. Jalankan ulang `initializeDatabase()` untuk kolom PDF Surat, Nama File PDF, Ukuran PDF, PDF Uploaded At, serta PDF Upload ID, lalu deploy versi baru. Data lama tidak dihapus.
+Untuk memperbarui GAS lama: salin `Code.gs` baru, **hapus file `Crm.gs` dan `Workspace.gs`** dari proyek (isinya sudah digabung), tambahkan file HTML `js_proposal`, lalu perbarui `Index.html`, `js_main.html`, `js_workspace.html`, dan `css_main.html`. Struktur sheet diperbarui otomatis saat aplikasi dibuka (kolom `Foto SPPI`/`Nama File SPPI` pada Personnel dan sheet `Proposals` ditambahkan di ujung, data lama tidak dihapus); menjalankan `initializeDatabase()` sekali lagi tetap disarankan.
 
 Cadangan JSON/CSV hanya berisi metadata, bukan file PDF atau foto. Unduh dokumen sebelum reset demo atau menghapus data browser. Unggahan PDF tidak mengubah status penugasan atau menandai reminder laporan sebagai selesai.
 
@@ -81,6 +91,6 @@ Cadangan JSON/CSV hanya berisi metadata, bukan file PDF atau foto. Unduh dokumen
 
 Validasi dilakukan pada form, lapisan penyimpanan, dan backend GAS: kode duplikat, relasi tidak ditemukan, tanggal tidak valid, riwayat kasus yang sudah terikat, nominal, pembagian fee, serta kuitansi ganda untuk log. Mutasi GAS menggunakan Script Lock. Jika server mengonfirmasi penyimpanan namun refresh gagal, ID hasil simpan dipertahankan untuk mencegah retry membuat baris baru.
 
-Fungsi admin `validateWorkspace()` pada `Crm.gs` menjalankan audit read-only relasi, kode klien, perhitungan tunggakan, dan pembagian fee. Hasil berisi `valid`, `checkedRecords`, dan daftar `issues`; tidak mengubah data. Jalankan setelah migrasi sebelum menggunakan data operasional. Pengujian langsung GAS membutuhkan deployment di akun Google Anda.
+Fungsi admin `validateWorkspace()` pada `Code.gs` menjalankan audit read-only relasi, kode klien, perhitungan tunggakan, pembagian fee, kelengkapan dokumen mitra (KTP/SPPI), dan integritas halaman proposal. Hasil berisi `valid`, `checkedRecords`, dan daftar `issues`; tidak mengubah data. Jalankan setelah migrasi sebelum menggunakan data operasional. Pengujian langsung GAS membutuhkan deployment di akun Google Anda.
 
 Build produksi menggunakan script proyek `npm run build`. Runtime GAS, otorisasi akun, dan pencetakan fisik perlu diverifikasi setelah deployment di akun pengguna.

@@ -7,7 +7,7 @@
   <title>ARMS | Account Receivables Management System</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = { darkMode: 'class', theme: { extend: { colors: { arms: { canvas: '#111318', panel: '#1a1c24', accent: '#8068e8' } }, fontFamily: { sans: ['Inter', 'sans-serif'] } } };
+    tailwind.config = { darkMode: 'class', theme: { extend: { colors: { arms: { canvas: '#111318', panel: '#1a1c24', accent: '#8068e8' } }, fontFamily: { sans: ['Inter', 'sans-serif'] } } } };
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -25,6 +25,7 @@
       <button data-nav="cases"><span data-icon="case"></span>Kasus Piutang<span id="case-count" class="nav-count">0</span></button>
       <button data-nav="collections"><span data-icon="chat"></span>Collections &amp; Communications Log</button>
       <button data-nav="letters"><span data-icon="file"></span>Surat Tugas &amp; Kuasa</button>
+      <button data-nav="proposals"><span data-icon="proposal"></span>Proposal</button>
       <button data-nav="executions"><span data-icon="car"></span>Eksekusi / Tarik Unit</button>
       <p class="nav-label">KEUANGAN</p>
       <button data-nav="payments"><span data-icon="wallet"></span>Pembayaran</button>
@@ -48,6 +49,7 @@
       <div id="module-cases" class="module no-print" hidden></div>
       <div id="module-collections" class="module no-print" hidden></div>
       <div id="module-letters" class="module" hidden></div>
+      <div id="module-proposals" class="module" hidden></div>
       <div id="module-payments" class="module no-print" hidden></div>
       <div id="module-executions" class="module no-print" hidden></div>
       <div id="module-accounts" class="module no-print" hidden></div>
@@ -64,6 +66,7 @@
   <?!= HtmlService.createHtmlOutputFromFile('js_operations').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('js_letters').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('js_workspace').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_proposal').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('js_bulk').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('js_main').getContent(); ?>
 </body>
