@@ -225,4 +225,129 @@
   @media(max-width:650px){.letter-fields-grid{grid-template-columns:1fr;padding:17px;gap:13px}.letter-metadata-footer{flex-wrap:wrap;padding:15px 17px}.letter-save-actions{width:100%;justify-content:flex-start}.letter-save-actions .btn{font-size:9px;padding:0 10px}.letter-pdf-body{padding:17px}.letter-pdf-current{flex-wrap:wrap}.letter-pdf-footer{flex-wrap:wrap;padding:15px 17px}.pdf-upload-area{padding:17px;min-height:96px}#letter-pdf-section>.panel-head{flex-wrap:wrap}}
   @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;animation-iteration-count:1!important}}
   @media print{@page{size:A4 portrait;margin:0}html,body{width:210mm!important;margin:0!important;padding:0!important;min-width:0!important;background:white!important;color-scheme:light}.main-shell,#main-content,.module,.letter-layout,.paper-viewport{display:block!important;width:auto!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;background:white!important;overflow:visible!important}.a4-paper{width:210mm!important;height:297mm!important;zoom:1!important;margin:0!important;box-shadow:none!important;break-inside:avoid;print-color-adjust:exact;-webkit-print-color-adjust:exact}.no-print,.module[hidden]{display:none!important}}
+  /* ============================ MODUL PROPOSAL ============================ */
+  .proposal-layout{display:grid;grid-template-columns:minmax(330px,430px) minmax(0,1fr);gap:22px;align-items:start}
+  .proposal-controls{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .proposal-form-body{padding:20px}
+  .proposal-form-body .form-grid{gap:14px}
+  .proposal-preview{max-height:min(1250px,calc(100dvh - 120px));position:sticky;top:18px}
+  .proposal-page-list{padding:0 12px}
+  .proposal-page-row{display:flex;align-items:center;gap:4px;border-bottom:1px solid #382c43}
+  .proposal-page-row:last-child{border-bottom:0}
+  .proposal-page-row.active{background:#2c2138;border-radius:6px}
+  .proposal-page-pick{flex:1;display:flex;align-items:center;gap:11px;background:none;border:0;padding:12px 8px;text-align:left;min-width:0}
+  .proposal-page-number{display:grid;place-items:center;width:26px;height:26px;border-radius:5px;background:#33263f;color:#c4a7e6;font-size:10px;flex-shrink:0}
+  .proposal-page-row.active .proposal-page-number{background:#8068e8;color:#fff}
+  .proposal-page-pick strong{display:block;font-size:10.5px;font-weight:500;color:#dcc7ea;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px}
+  .proposal-page-pick small{display:block;font-size:8px;color:#9b81ad;margin-top:4px}
+  .proposal-page-tools{display:flex;align-items:center;gap:1px;padding-right:5px}
+  .proposal-page-tools .icon-button,.block-card-tools .icon-button{width:24px;height:24px;font-size:11px}
+  .icon-button.danger:hover{background:#4a2634;color:#e6b3c4}
+  .proposal-page-add,.proposal-block-add{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px 20px;border-top:1px solid #45304f;font-size:9px;color:#a681b9}
+  .proposal-block-add{margin-top:18px;padding:16px 0 0}
+  .proposal-block-add .btn,.proposal-page-add .btn{font-size:9px;height:27px}
+  .proposal-blocks{display:flex;flex-direction:column;gap:14px;margin-top:18px}
+  .proposal-block-card{border:1px solid #4b3657;border-radius:7px;background:#221a2c;padding:15px}
+  .proposal-block-card .form-grid{gap:12px}
+  .proposal-block-card>.field{margin-top:12px}
+  .proposal-block-card>.field:first-of-type{margin-top:0}
+  .block-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:13px;font-size:8.5px;letter-spacing:.6px;color:#b995d0;text-transform:uppercase}
+  .block-card-tools{display:flex;gap:1px}
+  .proposal-rows,.proposal-table-editor{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+  .proposal-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) 26px;gap:10px;align-items:end}
+  .proposal-row.head{grid-template-columns:repeat(auto-fit,minmax(85px,1fr)) 26px 26px}
+  .proposal-table-editor .proposal-row{grid-template-columns:repeat(auto-fit,minmax(80px,1fr)) 26px}
+  .proposal-row .field span{font-size:8px}
+  .proposal-row .field input,.proposal-row .field textarea{height:32px;font-size:10px}
+  .proposal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;padding:15px 18px;background:#1d1725;border:1px solid #463050;border-radius:8px}
+  .proposal-partner-picker{border:1px solid #4b3657;border-radius:6px;background:#1f1829;margin-top:12px;max-height:290px;overflow:auto}
+  .picker-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #45304f;font-size:9px;color:#b495c9;position:sticky;top:0;background:#241b30;z-index:1}
+  .partner-picker-row{display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid #35293f;cursor:pointer}
+  .partner-picker-row:last-child{border-bottom:0}
+  .partner-picker-row.checked{background:#2c2138}
+  .partner-picker-row input{accent-color:#b08cdc;flex:0 0 auto}
+  .partner-picker-name{flex:1;min-width:0}
+  .partner-picker-name strong{display:block;font-size:10px;color:#dcc7ea;font-weight:500}
+  .partner-picker-name small{display:block;font-size:8px;color:#9b81ad;margin-top:4px;line-height:1.6}
+  .partner-picker-docs{display:flex;gap:5px;flex:0 0 auto}
+  .partner-picker-docs i{font-style:normal;font-size:7px;padding:3px 5px;border-radius:4px;border:1px solid}
+  .doc-ok{background:#243b30;border-color:#3a5542;color:#9bc8ab}
+  .doc-no{background:#3a2230;border-color:#5d3346;color:#c39aa9}
+  .check-field{flex-direction:row!important;align-items:center;gap:9px!important}
+  .check-field input{width:16px;height:16px!important;flex:0 0 auto}
+  .form-note.warn{color:#d3b18c}
+  .document-missing{font-size:8px;color:#8f759f}
+  .workspace-letterhead{padding-bottom:19px;margin-bottom:20px;border-bottom:1px solid #493252}
+  .letterhead-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:13px}
+  .letterhead-head strong{display:block;font-size:11.5px;color:#dbc3ea;font-weight:550}
+  .letterhead-head p{font-size:9px;color:#a080b3;line-height:1.8;margin-top:6px;max-width:520px}
+  .letterhead-preview{border:1px dashed #6c4d7c;border-radius:6px;background:#1b1424;padding:13px;min-height:76px;display:grid;place-items:center}
+  .letterhead-preview img{display:block;width:100%;height:auto;max-height:120px;object-fit:contain;background:#fff;border-radius:3px}
+  .letterhead-preview>span{display:flex;flex-direction:column;align-items:center;gap:8px;font-size:9px;color:#9c7fb0;text-align:center;line-height:1.8}
+  .letterhead-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:13px}
+  .letterhead-actions>small{width:100%;font-size:8px;color:#a080b3}
+  @media(max-width:1180px){.proposal-layout{grid-template-columns:1fr}.proposal-preview{position:static;max-height:none;order:2}}
+  @media(max-width:650px){.proposal-row{grid-template-columns:1fr 26px}.proposal-row .field:nth-child(2){grid-column:1}.proposal-actions .btn{flex:1}.proposal-page-pick strong{max-width:150px}}
+  /* ------------------------- kertas proposal (A4) ------------------------- */
+  .proposal-paper{position:relative;overflow:hidden;height:auto;min-height:297mm;padding:16mm 18mm 12mm;color:#3d3346}
+  .proposal-paper+.proposal-paper{margin-top:16px}
+  .proposal-letterhead{margin-bottom:8mm}
+  .proposal-letterhead.full-bleed{margin:-16mm -18mm 8mm;width:calc(100% + 36mm)}
+  .proposal-letterhead img{display:block;width:100%;height:auto;max-height:75mm;object-fit:cover;object-position:top center}
+  .proposal-letterhead>small{display:block;text-align:center;font-size:8px;color:#7f6e89;margin-top:4px;padding:0 18mm}
+  .letterhead-fallback{border-bottom:2px solid #735682;padding:6mm 18mm 5mm;text-align:center}
+  .letterhead-fallback h2{font-size:21px;font-weight:700;letter-spacing:-.3px;color:#61416e}
+  .letterhead-fallback p{font-size:9px;color:#7f6d88;margin-top:5px;line-height:1.7}
+  .proposal-cover{flex:1;display:flex;flex-direction:column;justify-content:center;gap:13mm;text-align:center;padding-top:6mm}
+  .cover-title h1{font-size:21px;line-height:1.55;font-weight:700;letter-spacing:.4px;color:#4c2f5c;text-transform:uppercase}
+  .cover-number{font-size:11px;margin-top:9px;color:#6b5478}
+  .cover-status{font-size:11px;letter-spacing:3px;color:#ae667e;margin-top:9px}
+  .cover-parties{display:flex;flex-direction:column;gap:11mm}
+  .cover-parties>div{border:1px solid #e3d5ea;border-radius:3px;padding:7mm 9mm;background:#fbf9fd}
+  .cover-parties span{display:block;font-size:8.5px;letter-spacing:2px;color:#8a7199;text-transform:uppercase}
+  .cover-parties strong{display:block;font-size:14.5px;color:#4c2f5c;margin-top:7px;line-height:1.55}
+  .cover-parties p{font-size:10px;color:#6b5478;margin-top:6px;line-height:1.8;white-space:pre-line}
+  .cover-date{font-size:11px;color:#6b5478;text-align:right}
+  .proposal-heading{color:#4c2f5c;line-height:1.5;margin:6mm 0 2.5mm;font-weight:700}
+  .proposal-heading.level-1{font-size:14.5px;text-align:center;letter-spacing:.4px;text-transform:uppercase;border-bottom:1px solid #e3d5ea;padding-bottom:3mm;margin-top:2mm}
+  .proposal-heading.level-2{font-size:12px;text-transform:uppercase}
+  .proposal-heading.level-3{font-size:11px}
+  .proposal-subtitle{text-align:center;font-size:11px;color:#6b5478;margin:-1mm 0 5mm;font-style:italic}
+  .proposal-paragraph{font-size:10.5px;line-height:1.9;margin:2.5mm 0;color:#3d3346}
+  .proposal-list{margin:2.5mm 0 2.5mm 6mm;padding:0;font-size:10.5px;line-height:1.85;color:#3d3346}
+  .proposal-list li{margin:1.6mm 0}
+  .proposal-table-title{font-size:10.5px;font-weight:700;color:#4c2f5c;margin:5mm 0 2mm;text-transform:uppercase;letter-spacing:.3px}
+  .proposal-pairs,.proposal-table{width:100%;height:auto;border-collapse:collapse;font-size:10px;margin:2mm 0 4mm;white-space:normal}
+  .proposal-pairs th,.proposal-pairs td,.proposal-table th,.proposal-table td{height:auto;border:1px solid #ddd0e4;padding:2.2mm 3mm;text-align:left;vertical-align:top;white-space:normal;line-height:1.7;color:#3d3346;background:#fff}
+  .proposal-pairs th{width:38%;background:#f6f1f9;color:#5d4470;font-weight:700}
+  .proposal-table th{background:#f0e8f5;color:#4c2f5c;font-weight:700}
+  .proposal-toc{margin:4mm 0 0 6mm;padding:0;font-size:11px;line-height:2.1;color:#3d3346}
+  .proposal-empty{font-size:10px;color:#8a7199;font-style:italic;margin:3mm 0}
+  .proposal-partners{display:flex;flex-direction:column;gap:5mm;margin:3mm 0}
+  .partner-card{border:1px solid #ddd0e4;border-radius:3px;padding:4mm;background:#fdfbff;break-inside:avoid}
+  .partner-identity{border-bottom:1px dashed #ddd0e4;padding-bottom:3mm;margin-bottom:3mm}
+  .partner-identity strong{display:block;font-size:12px;color:#4c2f5c}
+  .partner-identity small{display:block;font-size:9.5px;color:#6b5478;margin-top:1.5mm;line-height:1.6}
+  .partner-documents{display:grid;grid-template-columns:1fr 1fr;gap:5mm}
+  .partner-document{margin:0;text-align:center}
+  .partner-document img{width:100%;height:50mm;object-fit:contain;border:1px solid #ddd0e4;background:#fff;border-radius:2px}
+  .partner-document figcaption{font-size:8.5px;color:#7f6e89;margin-top:1.5mm;letter-spacing:.3px;text-transform:uppercase}
+  .partner-document.missing span{height:50mm;display:grid;place-items:center;border:1px dashed #d8c8e0;border-radius:2px;font-size:8.5px;color:#9b86a8;padding:4mm;line-height:1.7;text-align:center}
+  .proposal-signature{margin:10mm 0 0 auto;width:64%;text-align:center}
+  .proposal-signature .signature-place,.proposal-signature .signature-label,.proposal-signature .signature-org{display:block;font-size:10.5px;color:#3d3346;margin-top:2mm}
+  .proposal-signature .signature-org{font-weight:700;color:#4c2f5c}
+  .proposal-signature .signature-space{height:22mm}
+  .proposal-signature strong{display:block;font-size:11px;text-decoration:underline;text-underline-offset:4px;color:#3d3346}
+  .proposal-signature small{display:block;font-size:10px;color:#6b5478;margin-top:1.5mm}
+  @media print{
+    .proposal-layout{display:block!important;width:auto!important}
+    .proposal-controls,.proposal-preview>.paper-label{display:none!important}
+    .proposal-preview{display:block!important;position:static!important;max-height:none!important;overflow:visible!important;border:0!important;padding:0!important;background:#fff!important}
+    #proposal-paper{display:block!important}
+    .a4-paper.proposal-paper{width:210mm!important;min-height:297mm!important;height:auto!important;zoom:1!important;margin:0!important;box-shadow:none!important;break-inside:auto;break-after:page;page-break-after:always}
+    .a4-paper.proposal-paper:last-child{break-after:auto;page-break-after:auto}
+    .proposal-letterhead.full-bleed{margin:-16mm -18mm 8mm!important;width:calc(100% + 36mm)!important}
+    .proposal-paper+.proposal-paper{margin-top:0!important}
+    .partner-card,.proposal-table,.proposal-pairs{break-inside:avoid}
+  }
 </style>

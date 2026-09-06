@@ -7,42 +7,93 @@ function updateBranding() {
 }
 function addWorkspaceControls() {
   const settings = ARMS.db.settings, form = $('#settings-form'); if (!form) return;
+  const admin = ARMS.db.currentUser.role === 'Administrator';
   const connection = $('#module-settings .settings-info>div');
-  if (connection) connection.innerHTML = '<strong>Google Sheets terhubung</strong>11 tabel operasional, termasuk master klien dan collections log.<br>Foto KTP/STNK dan logo dikelola pada Google Drive terbatas.<br><a href="' + escapeHTML(ARMS.db.spreadsheetUrl) + '" target="_blank" rel="noopener noreferrer">Buka spreadsheet &nearr;</a>';
-  const logo = document.createElement('div'); logo.className = 'workspace-branding';
-  logo.innerHTML = '<div class="workspace-brand-identity">' + (settings.logo ? '<img src="' + escapeHTML(settings.logo) + '" alt="Logo perusahaan">' : '<span>' + icon('business') + '</span>') + '<strong>' + escapeHTML(settings.agency) + '</strong></div><label class="btn logo-upload">' + icon('plus') + 'Upload Logo<input type="file" id="workspace-logo-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload logo perusahaan"' + (ARMS.db.currentUser.role !== 'Administrator' ? ' disabled' : '') + '></label>' + (settings.logo ? '<button type="button" class="text-button" data-action="remove-workspace-logo">Hapus logo</button>' : '') + '<small>PNG, JPG, WebP. Maks. 2 MB.</small>';
-  form.prepend(logo);
-  form.querySelector('.form-grid').insertAdjacentHTML('beforeend', field('Jabatan penandatangan', 'signerPosition', settings.signerPosition, {}) + field('Reminder laporan SK (hari)', 'reportIntervalDays', settings.reportIntervalDays || 3, { type: 'number', min: 1, max: 30, required: true, hint: 'Jeda sejak SK terbit atau laporan/update terakhir.' }));
+  if (connection) connection.innerHTML = '<strong>Google Sheets terhubung</strong>12 tabel operasional pada satu workspace, termasuk master klien, collections log, dan proposal.<br>Foto KTP/STNK/SPPI, logo, dan kop surat dikelola pada Google Drive terbatas.<br><a href="' + escapeHTML(ARMS.db.spreadsheetUrl) + '" target="_blank" rel="noopener noreferrer">Buka spreadsheet &nearr;</a>';
+  const branding = document.createElement('div'); branding.className = 'workspace-branding';
+  branding.innerHTML = '<div class="workspace-brand-identity">' + (settings.logo ? '<img src="' + escapeHTML(settings.logo) + '" alt="Logo perusahaan">' : '<span>' + icon('business') + '</span>') + '<strong>' + escapeHTML(settings.agency) + '</strong></div><label class="btn logo-upload">' + icon('plus') + 'Upload Logo<input type="file" id="workspace-logo-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload logo perusahaan"' + (admin ? '' : ' disabled') + '></label>' + (settings.logo ? '<button type="button" class="text-button" data-action="remove-workspace-logo">Hapus logo</button>' : '') + '<small>PNG, JPG, WebP. Maks. 2 MB.</small>';
+  const letterhead = document.createElement('div'); letterhead.className = 'workspace-letterhead';
+  letterhead.innerHTML = '<div class="letterhead-head"><div><strong>Kop surat perusahaan</strong><p>Dipakai pada cover proposal dan dokumen cetak. Gambar dicetak penuh melewati batas margin atas halaman.</p></div>' + (settings.letterhead ? badge('Tersimpan') : badge('Belum ada')) + '</div>' +
+    '<div class="letterhead-preview' + (settings.letterhead ? ' has-image' : '') + '">' + (settings.letterhead ? '<img src="' + escapeHTML(settings.letterhead) + '" alt="Pratinjau kop surat">' : '<span>' + icon('proposal') + 'Belum ada kop surat. Contoh: banner logo + nama perusahaan + alamat + telepon/email.</span>') + '</div>' +
+    '<div class="letterhead-actions"><label class="btn logo-upload">' + icon('plus') + (settings.letterhead ? 'Ganti Kop Surat' : 'Upload Kop Surat') + '<input type="file" id="workspace-letterhead-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload kop surat perusahaan"' + (admin ? '' : ' disabled') + '></label>' + (settings.letterhead ? '<button type="button" class="text-button" data-action="remove-workspace-letterhead">Hapus kop surat</button>' : '') + '<small>JPG, PNG, WebP. Disarankan rasio lebar 1600 px, maks. 1 MB.</small></div>';
+  form.prepend(letterhead); form.prepend(branding);
+  form.querySelector('.form-grid').insertAdjacentHTML('beforeend',
+    field('Jabatan penandatangan', 'signerPosition', settings.signerPosition, {}) +
+    field('Reminder laporan SK (hari)', 'reportIntervalDays', settings.reportIntervalDays || 3, { type: 'number', min: 1, max: 30, required: true, hint: 'Jeda sejak SK terbit atau laporan/update terakhir.' }) +
+    field('Kota pembuatan proposal', 'proposalCity', settings.proposalCity, { placeholder: 'Purwokerto', maxLength: 100, hint: 'Default tempat pada proposal baru.' }) +
+    field('Contact person proposal', 'proposalContact', settings.proposalContact, { placeholder: 'Nama penanggung jawab', maxLength: 150 }) +
+    field('Telepon / WA proposal', 'proposalPhone', settings.proposalPhone, { placeholder: '0812xxxxxxx', maxLength: 30 }) +
+    field('Email proposal', 'proposalEmail', settings.proposalEmail, { type: 'email', placeholder: 'nama@perusahaan.com', maxLength: 254 }));
 }
-async function setWorkspaceLogo(file) {
-  if (ARMS.locked || ARMS.db.currentUser.role !== 'Administrator') return;
-  const pending = Object.fromEntries(new FormData($('#settings-form')));
+/** Perkecil gambar di browser sebelum diunggah agar hemat kuota Drive dan tetap tajam saat dicetak. */
+async function downscaleImage(file, maxSide, maxLength, label) {
+  const upload = await readCustomerPhoto(file);
+  const image = await new Promise((resolve, reject) => { const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error((label || 'Gambar') + ' tidak dapat dibaca.')); element.src = upload.dataUrl; });
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height)), canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale));
+  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+  let dataUrl = canvas.toDataURL('image/png');
+  if (dataUrl.length > maxLength) dataUrl = canvas.toDataURL('image/webp', .85);
+  if (dataUrl.length > maxLength) dataUrl = canvas.toDataURL('image/jpeg', .82);
+  if (dataUrl.length > maxLength) throw new Error((label || 'Gambar') + ' terlalu besar. Gunakan gambar yang lebih sederhana.');
+  return { dataUrl, width: canvas.width, height: canvas.height };
+}
+async function setWorkspaceImage(file, kind) {
+  if (ARMS.locked || !ARMS.db || ARMS.db.currentUser.role !== 'Administrator') return;
+  const form = $('#settings-form'); if (!form) return;
+  const pending = Object.fromEntries(new FormData(form));
   ARMS.locked = true;
   try {
-    let logo = '', logoName = '';
-    if (file) {
-      const upload = await readCustomerPhoto(file);
-      const image = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error('Logo tidak dapat dibaca.')); i.src = upload.dataUrl; });
-      const scale = Math.min(1, 320 / Math.max(image.width, image.height)), canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale)); canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-      logo = canvas.toDataURL('image/png'); if (logo.length > 180000) logo = canvas.toDataURL('image/webp', .8); if (logo.length > 180000) throw new Error('Logo terlalu besar. Gunakan gambar sederhana.'); logoName = file.name;
+    const payload = Object.assign({}, ARMS.db.settings, pending);
+    if (kind === 'letterhead') {
+      const image = file ? await downscaleImage(file, 1600, 1200000, 'Kop surat') : null;
+      payload.letterhead = image ? image.dataUrl : ''; payload.letterheadName = image ? file.name : '';
+    } else {
+      const image = file ? await downscaleImage(file, 320, 180000, 'Logo') : null;
+      payload.logo = image ? image.dataUrl : ''; payload.logoName = image ? file.name : '';
     }
-    await rpc('updateSettings', Object.assign({}, ARMS.db.settings, pending, { logo, logoName })); await reloadData(); toast(file ? 'Logo perusahaan diperbarui.' : 'Logo dihapus.');
+    ['feeRate', 'partnerRate', 'target', 'reportIntervalDays'].forEach(key => { if (key in payload) payload[key] = n(payload[key]); });
+    await rpc('updateSettings', payload); await reloadData();
+    toast(file ? (kind === 'letterhead' ? 'Kop surat diperbarui.' : 'Logo perusahaan diperbarui.') : (kind === 'letterhead' ? 'Kop surat dihapus.' : 'Logo dihapus.'));
   } catch (error) { toast(error.message, true); }
   finally { ARMS.locked = false; }
 }
-function personnelFieldsHTML(data) {
-  return '<div class="form-grid">' + field('Nama lengkap', 'name', data.name, { required: true, full: true }) + field('Posisi / Jabatan', 'position', data.position, { required: true, placeholder: 'Petugas Penagihan', maxLength: 150 }) + field('Jenis personel', 'type', data.type || 'Karyawan', { options: [{ value: 'Karyawan', label: 'Karyawan' }, { value: 'Mitra DC', label: 'Mitra' }] }) + field('Rekening bank', 'bank', data.bank, { required: true, full: true }) + field('NIK (Opsional)', 'nik', data.nik, { pattern: '[0-9]{16}', maxLength: 16, full: true, hint: 'Diisikan pada generator surat. Foto KTP tidak dibaca dengan OCR.' }) + '<div class="photo-field span-2"><span>KTP Personel</span><label class="photo-upload"><input type="file" id="personnel-ktp-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload KTP personel">' + icon('file') + '<span><strong id="personnel-ktp-name">' + escapeHTML(data.ktpPhotoName || 'Upload KTP') + '</strong><small>JPG, PNG, WebP. Maks. 2 MB.</small></span></label><button type="button" class="text-button photo-remove" data-action="remove-personnel-ktp">Hapus KTP</button></div></div><p class="form-note">Dokumen disimpan setelah Simpan Personel. File berada di Google Drive terbatas.</p>';
+function setWorkspaceLogo(file) { return setWorkspaceImage(file, 'logo'); }
+function setWorkspaceLetterhead(file) { return setWorkspaceImage(file, 'letterhead'); }
+function personnelDocumentField(kind, data) {
+  const label = kind === 'sppi' ? 'Sertifikat SPPI (Opsional)' : 'KTP Personel';
+  return '<div class="photo-field span-2"><span>' + label + '</span><label class="photo-upload"><input type="file" id="personnel-' + kind + '-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload ' + (kind === 'sppi' ? 'sertifikat SPPI personel' : 'KTP personel') + '">' + icon('file') + '<span><strong id="personnel-' + kind + '-name">' + escapeHTML(data[kind + 'PhotoName'] || (kind === 'sppi' ? 'Upload SPPI' : 'Upload KTP')) + '</strong><small>' + (data[kind + 'Photo'] && !data[kind + 'PhotoName'] ? 'Dokumen tersimpan. ' : '') + 'JPG, PNG, WebP. Maks. 2 MB.</small></span></label><button type="button" class="text-button photo-remove" data-action="remove-personnel-document" data-kind="' + kind + '">Hapus ' + (kind === 'sppi' ? 'SPPI' : 'KTP') + '</button></div>';
 }
-async function selectPersonnelKtp(input) {
+function personnelFieldsHTML(data) {
+  return '<div class="form-grid">' + field('Nama lengkap', 'name', data.name, { required: true, full: true }) + field('Posisi / Jabatan', 'position', data.position, { required: true, placeholder: 'Petugas Penagihan', maxLength: 150 }) + field('Jenis personel', 'type', data.type || 'Karyawan', { options: [{ value: 'Karyawan', label: 'Karyawan' }, { value: 'Mitra DC', label: 'Mitra DC' }] }) + field('Rekening bank', 'bank', data.bank, { required: true, full: true }) + field('NIK (Opsional)', 'nik', data.nik, { pattern: '[0-9]{16}', maxLength: 16, full: true, hint: 'Diisikan pada generator surat dan lampiran proposal. Foto KTP tidak dibaca dengan OCR.' }) + personnelDocumentField('ktp', data) + personnelDocumentField('sppi', data) + '</div><p class="form-note">Dokumen disimpan setelah Simpan Personel dan berada di Google Drive terbatas. Foto SPPI opsional, tetapi otomatis dipakai pada halaman Tim & Mitra proposal.</p>';
+}
+async function selectPersonnelDocument(input, kind) {
   const file = input.files && input.files[0], context = ARMS.form; input.value = ''; if (!file || !context || context.documentBusy) return;
   context.documentBusy = true; $('#entity-form button[type="submit"]').disabled = true; input.disabled = true;
-  try { const upload = await readCustomerPhoto(file); if (ARMS.form === context) { context.ktpUpload = upload; $('#personnel-ktp-name').textContent = upload.name; } }
+  try { const upload = await readCustomerPhoto(file); if (ARMS.form === context) { context[kind + 'Upload'] = upload; $('#personnel-' + kind + '-name').textContent = upload.name; } }
   catch (error) { toast(error.message, true); }
   finally { context.documentBusy = false; if (ARMS.form === context) { $('#entity-form button[type="submit"]').disabled = false; input.disabled = false; } }
 }
-async function downloadPersonnelKtp(id) {
-  try { const p = await rpc('getPersonnelDocument', id), response = await fetch(p.dataUrl), url = URL.createObjectURL(await response.blob()); const a = document.createElement('a'); a.href = url; a.download = p.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-  catch (error) { toast(error.message, true); }
+function selectPersonnelKtp(input) { return selectPersonnelDocument(input, 'ktp'); }
+function clearPersonnelDocument(kind) {
+  if (!ARMS.form || ARMS.form.documentBusy) return;
+  ARMS.form[kind + 'Upload'] = null;
+  const name = $('#personnel-' + kind + '-name');
+  if (name) name.textContent = kind === 'sppi' ? 'Upload SPPI' : 'Upload KTP';
+}
+async function downloadPersonnelFile(id, kind) {
+  try {
+    const file = await rpc('getPersonnelFile', id, kind || 'ktp');
+    if (!/^data:image\/(jpeg|png|webp);base64,/.test(file.dataUrl)) throw new Error('Format dokumen tidak valid.');
+    const response = await fetch(file.dataUrl), url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = file.name; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  } catch (error) { toast(error.message, true); }
+}
+function downloadPersonnelKtp(id) { return downloadPersonnelFile(id, 'ktp'); }
+function personnelDocumentCell(r) {
+  const action = (kind, label) => r[kind + 'Photo'] ? '<button class="text-button" data-action="personnel-document" data-kind="' + kind + '" data-id="' + escapeHTML(r.id) + '">' + icon('download') + 'Unduh ' + label + '</button>' : '<span class="document-missing">' + label + ' belum diunggah</span>';
+  return '<div class="personnel-document-actions">' + action('ktp', 'KTP') + action('sppi', 'SPPI') + '<button class="text-button" data-action="edit" data-entity="personnel" data-id="' + escapeHTML(r.id) + '">Kelola dokumen</button></div>';
 }
 
 function initClientSteps() {

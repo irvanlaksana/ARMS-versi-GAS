@@ -6,16 +6,15 @@ Paket Google Apps Script Web App dengan database Google Sheets, frontend Vanilla
 
 | File | Fungsi |
 | --- | --- |
-| Code.gs | doGet, inisialisasi spreadsheet, CRUD, JOIN, autentikasi, dan validasi |
-| Crm.gs | Validasi master klien, recovery case, collections log, migrasi relasi, dan audit read-only |
-| Workspace.gs | Logo, KTP personel, arsip PDF surat, dan impor batch tervalidasi |
+| Code.gs | Satu-satunya file backend: doGet, inisialisasi spreadsheet, CRUD, JOIN, autentikasi, validasi CRM, logo/kop surat, dokumen personel (KTP/SPPI), arsip PDF surat, proposal, impor batch, dan audit read-only |
 | Index.html | Shell SPA, sidebar, header, dialog, dan modul aplikasi |
 | js_main.html | JavaScript modular, Promise google.script.run, formulir, kalkulasi, ekspor, dan surat |
 | js_customer.html | Form debitur, pilihan wilayah bertingkat, dan unggahan foto KTP/STNK |
 | js_crm.html | Master klien, form kasus baru, log komunikasi, dan alur log-ke-pembayaran |
 | js_operations.html | Status proses debitur, eksekusi unit, rekening, dan mutasi fee |
 | js_letters.html | Form penugasan, tautan generator, upload dan unduh PDF surat |
-| js_workspace.html | Branding, dokumen personel, form klien dua langkah, dan reminder SK |
+| js_workspace.html | Branding (logo + kop surat), dokumen personel KTP/SPPI, form klien dua langkah, dan reminder SK |
+| js_proposal.html | Editor proposal per halaman, pratinjau kertas A4, halaman Tim & Mitra DC dengan foto KTP/SPPI, dan cetak |
 | js_bulk.html | Template/pembacaan Excel, CSV, pemeriksaan baris, dan impor bulk |
 | css_main.html | Dark mode, form bertahap berbatas viewport, responsive, dan loading |
 | appsscript.json | Runtime V8, zona waktu Asia/Jakarta, dan OAuth scopes |
@@ -28,6 +27,7 @@ Paket Google Apps Script Web App dengan database Google Sheets, frontend Vanilla
     <?!= HtmlService.createHtmlOutputFromFile('js_operations').getContent(); ?>
     <?!= HtmlService.createHtmlOutputFromFile('js_letters').getContent(); ?>
     <?!= HtmlService.createHtmlOutputFromFile('js_workspace').getContent(); ?>
+    <?!= HtmlService.createHtmlOutputFromFile('js_proposal').getContent(); ?>
     <?!= HtmlService.createHtmlOutputFromFile('js_bulk').getContent(); ?>
     <?!= HtmlService.createHtmlOutputFromFile('js_main').getContent(); ?>
 
@@ -35,11 +35,11 @@ Paket Google Apps Script Web App dengan database Google Sheets, frontend Vanilla
 
 1. Buat Google Spreadsheet baru untuk database agensi. Jangan gunakan spreadsheet publik.
 2. Buka **Extensions > Apps Script**. Gunakan proyek yang terikat ke spreadsheet tersebut.
-3. Ganti `Code.gs`, lalu tambahkan file Script bernama `Crm.gs` dan `Workspace.gs`. Ketiga file backend wajib tersedia dalam proyek yang sama.
-4. Buat file HTML dengan nama tepat `Index`, `js_main`, `js_customer`, `js_crm`, `js_operations`, `js_letters`, `js_workspace`, `js_bulk`, dan `css_main`. Salin seluruh isinya, termasuk tag `<style>` atau `<script>`.
+3. Salin seluruh isi `Code.gs` ke proyek. **Cukup satu file Script.** Jika proyek Anda masih memiliki `Crm.gs` dan `Workspace.gs`, hapus keduanya (klik file > Remove). Isinya sudah digabung ke `Code.gs`; file lama yang tertinggal dapat menimpa fungsi versi baru. Error `loadWorkspaceLogo_ is not defined` muncul bila `Workspace.gs` tidak ada, dan tidak akan muncul lagi pada versi ini.
+4. Buat file HTML dengan nama tepat `Index`, `js_main`, `js_customer`, `js_crm`, `js_operations`, `js_letters`, `js_workspace`, `js_proposal`, `js_bulk`, dan `css_main`. Salin seluruh isinya, termasuk tag `<style>` atau `<script>`.
 5. Di **Project Settings**, aktifkan **Show appsscript.json manifest file in editor**. Salin konfigurasi `appsscript.json` dari paket.
 6. Simpan proyek. Pilih `initializeDatabase` dari dropdown fungsi, lalu klik **Run** sebagai pemilik proyek. Izinkan akses Google yang diminta.
-7. Periksa hasil fungsi. Pada keberhasilan, sebelas sheet dibuat dan akun pemilik masuk ke sheet `Users` sebagai `Administrator`. Spreadsheet ID tersimpan dalam Script Property `ARMS_SPREADSHEET_ID`.
+7. Periksa hasil fungsi. Pada keberhasilan, dua belas sheet dibuat (termasuk `Proposals`) dan akun pemilik masuk ke sheet `Users` sebagai `Administrator`. Spreadsheet ID tersimpan dalam Script Property `ARMS_SPREADSHEET_ID`.
 8. Pilih **Deploy > New deployment > Web app**. Untuk Google Workspace internal, gunakan **Execute as: Me** dan batasi akses ke organisasi Anda. Jangan memilih akses anonim atau publik.
 9. Buka URL `/exec` deployment. Identitas Google yang mengakses harus tersedia dan email tersebut harus tercantum di sheet `Users`.
 10. Tambahkan pengguna internal melalui **Pengaturan > Pengguna & akses**. Username harus berupa email Google, bukan nama panggilan.
@@ -49,13 +49,14 @@ File README ini adalah dokumentasi, bukan file yang perlu ditambahkan ke editor 
 
 ## Memperbarui Deployment Lama
 
-1. Cadangkan spreadsheet. Tambahkan file HTML `js_letters`, perbarui Code.gs, Workspace.gs, Index, js_main, dan css_main. Hapus file HTML js_repo dan js_generator yang tidak lagi digunakan. Lengkapi file paket versi sebelumnya jika belum tersedia.
-2. Jalankan ulang `initializeDatabase` sebagai pemilik. Sheet Clients dan CollectionLogs, kolom relasi pada Cases/Payments/Transactions, serta sheet versi sebelumnya ditambahkan tanpa menghapus data lama. Nama klien lama ditautkan ke master baru dengan kode LEGACY, tanpa membuat kontak/alamat fiktif.
-3. Izinkan akses Google Drive, kemudian deploy versi baru. Drive menyimpan dokumen KTP/STNK, logo, dan PDF surat dalam folder terbatas.
+1. Cadangkan spreadsheet. Salin `Code.gs` baru, **hapus `Crm.gs` dan `Workspace.gs`**, tambahkan file HTML `js_proposal`, lalu perbarui `Index`, `js_main`, `js_workspace`, dan `css_main`. Hapus file HTML js_repo dan js_generator yang tidak lagi digunakan. Lengkapi file paket versi sebelumnya jika belum tersedia.
+2. Struktur spreadsheet diperbarui otomatis saat aplikasi pertama kali dibuka: sheet `Proposals` dibuat dan kolom `Foto SPPI` + `Nama File SPPI` ditambahkan di ujung sheet `Personnel`. Data lama tidak dihapus atau digeser. Menjalankan `initializeDatabase` sekali lagi sebagai pemilik tetap disarankan. Sheet Clients dan CollectionLogs, kolom relasi pada Cases/Payments/Transactions, serta sheet versi sebelumnya ditambahkan tanpa menghapus data lama. Nama klien lama ditautkan ke master baru dengan kode LEGACY, tanpa membuat kontak/alamat fiktif.
+3. Izinkan akses Google Drive, kemudian deploy versi baru. Drive menyimpan dokumen KTP/STNK/SPPI, logo, kop surat, dan PDF surat dalam folder terbatas.
 4. Saat mengedit data lama, lengkapi wilayah dan tanggal jatuh tempo. NIK, pekerjaan, serta kontak darurat lama dipertahankan di spreadsheet, tetapi tidak lagi ditampilkan sebagai field form debitur.
 5. Lengkapi PIC, nomor telepon, dan alamat klien LEGACY. Tanggal kasus lama dibaca dari Created At; penanggung jawab awal diambil dari SK aktif bila tersedia. Lengkapi personel jika kasus lama belum memiliki penugasan.
 6. Jalankan `validateWorkspace()` sebagai Administrator dari editor untuk mendapatkan daftar data yang perlu ditinjau. Fungsi ini read-only dan tidak memperbaiki data secara diam-diam.
 7. Sheet SK memperoleh kolom tambahan PDF Surat, Nama File PDF, Ukuran PDF, PDF Uploaded At, dan PDF Upload ID. Kolom Generator Data lama dipertahankan tanpa digunakan pada alur surat baru. Tidak ada tab atau data lama yang dihapus.
+8. Setelah deploy, unggah **Kop surat perusahaan** melalui Pengaturan agar cover proposal dicetak dengan banner penuh, lalu lengkapi foto SPPI mitra DC melalui Tim & Mitra.
 
 Form debitur menggunakan tiga bagian dan registrasi klien menggunakan dua bagian, dengan tinggi terbatas viewport. Form surat menyediakan tautan generator di tab baru serta form terpisah untuk mengunggah PDF final.
 
@@ -87,12 +88,14 @@ Kolom inti mengikuti urutan yang diminta. Jangan mengubah nama tab, urutan heade
 | Executions | ID, No Penarikan, Case_ID, Personnel_ID, Tanggal, Lokasi, Metode, Referensi Kuasa, No BAST, Status, Dasar Fee, Fee Rate, Partner Rate, Gross Fee, Company Revenue, Partner Commission, Catatan |
 | Accounts | ID, Nama Rekening, Bank, Nomor Rekening, Atas Nama, Saldo Awal |
 | Transactions | ID, No Transaksi, Account_ID, Tanggal, Jenis, Kategori, Sumber, Source_ID, Case_ID, Klien, Nominal, Referensi, Keterangan |
+| Proposals | ID, No Proposal, Judul, Client_ID, Nama Klien, Diajukan Kepada, Tanggal, Tempat, Status, Halaman, Mitra, Lampiran, Penandatangan, Jabatan Penandatangan, Contact Person, No Telepon, Email, Catatan, Created At, Updated At |
 
 Kolom tambahan ditempatkan setelah kolom inti untuk mempertahankan data formulir:
 
 - Customers: `No Kontrak`, `Kabupaten Kota ID`, `Kabupaten Kota`, `Kecamatan ID`, `Kecamatan`, `Kelurahan Desa`, `Alamat Lengkap`, `Tanggal Jatuh Tempo`, `Foto KTP`, `Nama File KTP`, `Foto STNK`, `Nama File STNK`, `Merk Type`, `Nomor Polisi`.
 - Cases: `Status`, `Created At`, `Payment Closed`, `Client_ID`, `Layanan`, `Personnel_ID`, `Tanggal Dibuat`, `Jatuh Tempo Acuan`.
-- Personnel: `Posisi Jabatan`, `NIK`, `Foto KTP`, `Nama File KTP`.
+- Personnel: `Posisi Jabatan`, `NIK`, `Foto KTP`, `Nama File KTP`, `Foto SPPI`, `Nama File SPPI`.
+- Proposals: `Halaman`, `Mitra`, dan `Lampiran` menyimpan JSON array dalam satu sel. `Halaman` dibatasi 45.000 karakter agar tetap di bawah limit 50.000 karakter per sel Google Sheets; proposal yang lebih panjang ditolak dengan pesan yang jelas.
 - SK: `Tempat`, `Penandatangan`, `Perwakilan Klien`, `Alamat Klien`, `Berlaku Sampai`, `Generator Data` (legacy), `Catatan Update`, `Updated At`, `PDF Surat`, `Nama File PDF`, `Ukuran PDF`, `PDF Uploaded At`, `PDF Upload ID`.
 - CollectionLogs: `SK_ID` untuk relasi laporan pada penugasan tertentu.
 - Payments: `Tanggal`, `Fee Rate`, `Partner Rate`, `Manual Details`, `CollectionLog_ID`.
@@ -118,14 +121,15 @@ Setiap endpoint data mengembalikan objek JSON-serializable dengan struktur:
 - Cases: `getCases`, `addCase(data)`, `updateCase(id, data)`, `deleteCase(id)`.
 - CollectionLogs: `getCollectionLogs`, `addCollectionLog(data)`, `updateCollectionLog(id, data)`, `deleteCollectionLog(id)`.
 - Personnel: `getPersonnel`, `addPersonnel(data)`, `updatePersonnel(id, data)`, `deletePersonnel(id)`.
-- Dokumen personel: `getPersonnelDocument(personnelId)` mengembalikan foto KTP hanya setelah otorisasi dan verifikasi folder.
+- Dokumen personel: `getPersonnelFile(personnelId, 'ktp' | 'sppi')` mengembalikan foto KTP atau sertifikat SPPI hanya setelah otorisasi dan verifikasi folder. `getPersonnelFiles([id, ...])` (maks. 12 ID) mengembalikan foto KTP + SPPI sekaligus untuk halaman Tim & Mitra pada proposal; file di atas 1,5 MB dilewati dengan pesan agar payload tetap ringan.
+- Proposals: `getProposals`, `addProposal(data)`, `updateProposal(id, data)`, `deleteProposal(id)`.
 - SK: `getSK`, `addSK(data)`, `updateSK(id, data)`, `deleteSK(id)`.
 - PDF SK: `uploadSKPdf(letterId, upload, uploadId, expectedPdfUrl)` dan `getSKPdf(letterId)`.
 - Payments: `getPayments`, `addPayment(data)`, `updatePayment(id, data)`, `deletePayment(id)`.
 - Executions: `getExecutions`, `addExecution(data)`, `updateExecution(id, data)`, `deleteExecution(id)`.
 - Accounts: `getAccounts`, `addAccount(data)`, `updateAccount(id, data)`, `deleteAccount(id)`.
 - Transactions: `getTransactions`, `addTransaction(data)`, `updateTransaction(id, data)`, `deleteTransaction(id)`.
-- Workspace: `getBootstrap`, `getSettings`, `updateSettings(data)`.
+- Workspace (satu workspace tunggal): `getBootstrap`, `getSettings`, `updateSettings(data)`. `updateSettings` menerima `logo`/`logoName` dan `letterhead`/`letterheadName` sebagai data URL; server menyimpan file di Drive dan hanya menyimpan ID file pada Script Property `ARMS_SETTINGS`. `getBootstrap` mengembalikan `settings.logo` dan `settings.letterhead` siap pakai, serta array `proposals`.
 - Audit Administrator: `validateWorkspace()` menghasilkan `{ valid, checkedRecords, issues, message }` di dalam properti `data` pada envelope standar.
 
 Nama properti JSON dan pemetaan ke header spreadsheet tersedia di `ARMS_SCHEMA` pada `Code.gs`. Contoh: `name` dipetakan ke `Nama`, `customerId` ke `Customer_ID`, dan `principal` ke `Principal Outstanding`.
@@ -249,12 +253,31 @@ Pada demo React, PDF disimpan di IndexedDB pada browser. Reset demo menghapus fi
 
 ExcelJS 4.4.0 dimuat dari CDN hanya saat fitur Excel digunakan di GAS. Versi React membundelnya sebagai dependency. Gunakan file terpercaya milik organisasi, bukan workbook tidak dikenal.
 
-## Logo Dan KTP Personel
+## Logo, Kop Surat, Dan Dokumen Personel
+
+Aplikasi memakai **satu workspace tunggal**: satu identitas agensi, satu logo, satu kop surat, dan satu spreadsheet database. Tidak ada pemilihan atau pemisahan multi-workspace.
 
 - Tombol Upload Logo berada di kiri Pengaturan. Nama perusahaan ditampilkan di samping logo pada workspace. Logo tidak dikirim otomatis ke generator eksternal.
 - Logo JPG/PNG/WebP maksimal 2 MB diubah menjadi gambar maksimal 320 px dan 180.000 karakter dataURL. Versi GAS menyimpan file di folder Drive terbatas dan hanya menyimpan ID file dalam Script Properties, bukan base64 besar.
-- Tim & Mitra memiliki Posisi / Jabatan, NIK opsional, serta Upload KTP. Nama personel di dropdown tidak diberi akhiran Mitra DC. Jenis Karyawan/Mitra tetap tersimpan untuk kompatibilitas.
-- KTP maksimal 2 MB. Versi demo memakai IndexedDB; GAS memakai folder Drive terotorisasi. File lama dipindahkan ke Trash setelah perubahan berhasil disimpan. Foto KTP tidak diekstraksi melalui OCR; NIK opsional tetap dapat dicatat pada data personel.
+- Blok **Kop surat perusahaan** pada Pengaturan menerima banner kop (JPG/PNG/WebP, diperkecil otomatis ke lebar maksimal 1600 px dan 1,2 juta karakter dataURL). Kop surat dipakai pada cover proposal dan dicetak penuh melewati batas margin atas kertas. Bila belum ada kop, aplikasi mencetak kop teks otomatis dari nama agensi, alamat, telepon, dan email.
+- Field default proposal (kota pembuatan, contact person, telepon, email) tersedia pada Pengaturan dan mengisi token `{kota}`, `{kontak}`, `{telepon}`, `{email}`.
+- Tim & Mitra memiliki Posisi / Jabatan, NIK opsional, Upload KTP, dan **Upload SPPI (opsional)**. Nama personel di dropdown tidak diberi akhiran Mitra DC. Jenis Karyawan/Mitra tetap tersimpan untuk kompatibilitas.
+- KTP dan SPPI maksimal 2 MB per file. GAS menyimpan keduanya di folder Drive terotorisasi; file lama dipindahkan ke Trash setelah perubahan berhasil disimpan. Kedua dokumen dapat diunduh dari kolom "KTP / SPPI" pada tabel Tim & Mitra maupun dari detail personel.
+- Foto tidak diekstraksi melalui OCR; NIK opsional tetap dapat dicatat pada data personel dan ditampilkan di lampiran proposal bila diaktifkan.
+- `validateWorkspace()` menandai Mitra DC yang belum memiliki foto KTP atau SPPI agar lampiran proposal lengkap sebelum dikirim.
+
+## Proposal Kerja Sama
+
+Menu **Proposal** menyusun proposal kerja sama jasa penagihan yang dapat diedit per halaman, mengikuti struktur contoh proposal (surat permohonan, company profile, daftar isi, BAB 1-9).
+
+- Satu proposal = satu baris pada sheet `Proposals`. Kolom `Halaman`, `Mitra`, dan `Lampiran` menyimpan JSON array; seluruh teks divalidasi dan dibatasi panjangnya di server.
+- Editor menampilkan tiga panel: informasi proposal (judul, nomor, klien dari master atau manual, kepada, tanggal, tempat, status, penandatangan, contact person, lampiran, catatan internal), daftar halaman, dan isi halaman terpilih. Pratinjau kertas A4 berada di sisi kanan dan diperbarui saat mengetik.
+- Halaman dapat ditambah (isi atau daftar isi), diduplikasi, dipindahkan, dan dihapus. Halaman pertama selalu menjadi cover.
+- Isi halaman disusun dari blok: kop surat, judul bagian (H1/H2/H3), paragraf, daftar butir (bullet/bernomor), tabel label-nilai, tabel bebas, Tim & Mitra DC, dan tanda tangan. Setiap blok dapat dipindahkan atau dihapus.
+- Blok **Tim & Mitra DC** mengambil personel dari Tim & Mitra dan menampilkan nama, jabatan, jenis personel, NIK (opsional), rekening, serta **foto KTP dan foto sertifikat SPPI**. Tombol "Muat foto mitra" mengambil dokumen dari Drive (maks. 12 mitra per request); foto juga dimuat otomatis sebelum mencetak.
+- Token teks pada seluruh isian: `{agensi}`, `{klien}`, `{nomor}`, `{kota}`, `{tanggal}`, `{penandatangan}`, `{jabatan}`, `{kontak}`, `{telepon}`, `{email}`, `{alamat}`.
+- **Cetak / Simpan PDF** memakai dialog cetak browser: ukuran A4, margin default atau None, dan "Save as PDF". Kop surat pada cover dicetak full-bleed (menyentuh tepi atas dan sisi kertas) seperti contoh proposal. Proposal harus disimpan terlebih dahulu agar nomor dan data mitra tercetak benar.
+- Personel yang masih dipakai pada sebuah proposal tidak dapat dihapus; lepaskan dari halaman Tim & Mitra terlebih dahulu. Mengganti nama klien pada master menyinkronkan `Nama Klien` pada proposal tanpa mengubah isi halaman.
 
 ## Reminder Laporan SK
 
@@ -354,8 +377,17 @@ Daftar kabupaten/kota dan kecamatan dimuat dari `https://www.emsifa.com/api-wila
 33. Coba file bukan PDF, PDF kosong/tanpa penanda akhir, MIME tidak sesuai, dan file di atas 5 MB. Harus muncul error tanpa perubahan pada file yang sudah tersimpan.
 34. Ganti PDF, periksa bahwa dokumen sebelumnya baru dibersihkan setelah metadata baru tersimpan. Ulangi upload dengan ID request yang sama dan pastikan tidak membuat file ganda. Request dengan referensi PDF lama harus ditolak.
 35. Pastikan upload PDF tidak mengubah status atau Updated At laporan SK. Coba mengganti kasus/personel pada penugasan yang telah memiliki PDF atau laporan; backend harus menolak.
+36. Buka aplikasi setelah mengganti `Code.gs` tanpa menjalankan `initializeDatabase`. Aplikasi harus tetap termuat; sheet `Proposals` dan kolom `Foto SPPI`/`Nama File SPPI` pada Personnel ditambahkan otomatis tanpa mengubah data lama.
+37. Pastikan error `loadWorkspaceLogo_ is not defined` tidak muncul lagi. Bila masih muncul, file `Workspace.gs` lama masih ada di proyek dan perlu dihapus karena seluruh backend kini berada di `Code.gs`.
+38. Unggah kop surat perusahaan pada Pengaturan, muat ulang aplikasi, lalu periksa pratinjau dan hasil cetak: gambar menyentuh tepi atas kertas dan melewati margin kiri-kanan pada cover.
+39. Unggah foto SPPI untuk satu Mitra DC (KTP sudah ada), simpan, muat ulang, lalu unduh keduanya dari tabel Tim & Mitra dan dari detail personel. Personel tanpa SPPI tetap dapat disimpan.
+40. Buat proposal baru dari template, ganti judul/klien/tanggal, tambah satu halaman isi, pindah urutannya, duplikasi, lalu hapus. Pratinjau kertas harus mengikuti setiap perubahan tanpa kehilangan teks.
+41. Pilih dua Mitra DC pada blok Tim & Mitra, klik "Muat foto mitra", lalu cetak. Foto KTP dan SPPI harus tampil pada lampiran; mitra tanpa SPPI menampilkan keterangan "Belum diunggah".
+42. Simpan proposal, muat ulang aplikasi, buka kembali, lalu ubah status menjadi Terkirim dan simpan. Nomor proposal tidak boleh berubah dan baris pada sheet `Proposals` tidak boleh bertambah.
+43. Coba menyimpan proposal tanpa judul, dengan tanggal tidak valid, dengan nomor duplikat, atau dengan mitra yang tidak dikenal. Semua harus ditolak dengan pesan yang jelas.
+44. Hapus personel yang masih dipakai sebuah proposal. Backend harus menolak sampai mitra dilepas dari halaman Tim & Mitra.
 
-Paket sumber telah disiapkan, tetapi akses akun Google, otorisasi, deployment, dan tes di lingkungan GAS harus dilakukan pada organisasi Anda. Keberhasilan build frontend React tidak memverifikasi runtime layanan Google.
+Paket sumber telah disiapkan, tetapi akses akun Google, otorisasi, deployment, dan tes di lingkungan GAS harus dilakukan pada organisasi Anda. Keberhasilan build frontend React tidak memverifikasi runtime layanan Google. Versi demo React pada `src/` tidak ikut diubah pada pembaruan proposal ini; aplikasi yang di-deploy adalah paket `public/google-apps-script/`.
 
 ## Referensi
 
