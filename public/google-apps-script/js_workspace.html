@@ -1,0 +1,95 @@
+<script>
+function updateBranding() {
+  const settings = ARMS.db.settings, brand = $('.sidebar .brand');
+  brand.classList.add('company-brand');
+  const image = settings.logo && /^data:image\/(png|jpeg|webp);base64,/.test(settings.logo) ? '<img src="' + escapeHTML(settings.logo) + '" alt="Logo perusahaan">' : icon('business');
+  brand.innerHTML = image + '<span><strong>' + escapeHTML(settings.agency) + '</strong><small>ARMS / Collection Workspace</small></span>';
+}
+function addWorkspaceControls() {
+  const settings = ARMS.db.settings, form = $('#settings-form'); if (!form) return;
+  const connection = $('#module-settings .settings-info>div');
+  if (connection) connection.innerHTML = '<strong>Google Sheets terhubung</strong>11 tabel operasional, termasuk master klien dan collections log.<br>Foto KTP/STNK dan logo dikelola pada Google Drive terbatas.<br><a href="' + escapeHTML(ARMS.db.spreadsheetUrl) + '" target="_blank" rel="noopener noreferrer">Buka spreadsheet &nearr;</a>';
+  const logo = document.createElement('div'); logo.className = 'workspace-branding';
+  logo.innerHTML = '<div class="workspace-brand-identity">' + (settings.logo ? '<img src="' + escapeHTML(settings.logo) + '" alt="Logo perusahaan">' : '<span>' + icon('business') + '</span>') + '<strong>' + escapeHTML(settings.agency) + '</strong></div><label class="btn logo-upload">' + icon('plus') + 'Upload Logo<input type="file" id="workspace-logo-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload logo perusahaan"' + (ARMS.db.currentUser.role !== 'Administrator' ? ' disabled' : '') + '></label>' + (settings.logo ? '<button type="button" class="text-button" data-action="remove-workspace-logo">Hapus logo</button>' : '') + '<small>PNG, JPG, WebP. Maks. 2 MB.</small>';
+  form.prepend(logo);
+  form.querySelector('.form-grid').insertAdjacentHTML('beforeend', field('Jabatan penandatangan', 'signerPosition', settings.signerPosition, {}) + field('Reminder laporan SK (hari)', 'reportIntervalDays', settings.reportIntervalDays || 3, { type: 'number', min: 1, max: 30, required: true, hint: 'Jeda sejak SK terbit atau laporan/update terakhir.' }));
+}
+async function setWorkspaceLogo(file) {
+  if (ARMS.locked || ARMS.db.currentUser.role !== 'Administrator') return;
+  const pending = Object.fromEntries(new FormData($('#settings-form')));
+  ARMS.locked = true;
+  try {
+    let logo = '', logoName = '';
+    if (file) {
+      const upload = await readCustomerPhoto(file);
+      const image = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error('Logo tidak dapat dibaca.')); i.src = upload.dataUrl; });
+      const scale = Math.min(1, 320 / Math.max(image.width, image.height)), canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale)); canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      logo = canvas.toDataURL('image/png'); if (logo.length > 180000) logo = canvas.toDataURL('image/webp', .8); if (logo.length > 180000) throw new Error('Logo terlalu besar. Gunakan gambar sederhana.'); logoName = file.name;
+    }
+    await rpc('updateSettings', Object.assign({}, ARMS.db.settings, pending, { logo, logoName })); await reloadData(); toast(file ? 'Logo perusahaan diperbarui.' : 'Logo dihapus.');
+  } catch (error) { toast(error.message, true); }
+  finally { ARMS.locked = false; }
+}
+function personnelFieldsHTML(data) {
+  return '<div class="form-grid">' + field('Nama lengkap', 'name', data.name, { required: true, full: true }) + field('Posisi / Jabatan', 'position', data.position, { required: true, placeholder: 'Petugas Penagihan', maxLength: 150 }) + field('Jenis personel', 'type', data.type || 'Karyawan', { options: [{ value: 'Karyawan', label: 'Karyawan' }, { value: 'Mitra DC', label: 'Mitra' }] }) + field('Rekening bank', 'bank', data.bank, { required: true, full: true }) + field('NIK (Opsional)', 'nik', data.nik, { pattern: '[0-9]{16}', maxLength: 16, full: true, hint: 'Diisikan pada generator surat. Foto KTP tidak dibaca dengan OCR.' }) + '<div class="photo-field span-2"><span>KTP Personel</span><label class="photo-upload"><input type="file" id="personnel-ktp-file" accept="image/png,image/jpeg,image/webp" aria-label="Upload KTP personel">' + icon('file') + '<span><strong id="personnel-ktp-name">' + escapeHTML(data.ktpPhotoName || 'Upload KTP') + '</strong><small>JPG, PNG, WebP. Maks. 2 MB.</small></span></label><button type="button" class="text-button photo-remove" data-action="remove-personnel-ktp">Hapus KTP</button></div></div><p class="form-note">Dokumen disimpan setelah Simpan Personel. File berada di Google Drive terbatas.</p>';
+}
+async function selectPersonnelKtp(input) {
+  const file = input.files && input.files[0], context = ARMS.form; input.value = ''; if (!file || !context || context.documentBusy) return;
+  context.documentBusy = true; $('#entity-form button[type="submit"]').disabled = true; input.disabled = true;
+  try { const upload = await readCustomerPhoto(file); if (ARMS.form === context) { context.ktpUpload = upload; $('#personnel-ktp-name').textContent = upload.name; } }
+  catch (error) { toast(error.message, true); }
+  finally { context.documentBusy = false; if (ARMS.form === context) { $('#entity-form button[type="submit"]').disabled = false; input.disabled = false; } }
+}
+async function downloadPersonnelKtp(id) {
+  try { const p = await rpc('getPersonnelDocument', id), response = await fetch(p.dataUrl), url = URL.createObjectURL(await response.blob()); const a = document.createElement('a'); a.href = url; a.download = p.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+  catch (error) { toast(error.message, true); }
+}
+
+function initClientSteps() {
+  const form = $('#entity-form'), body = form.querySelector('.dialog-body'), error = $('#form-error');
+  form.noValidate = true; $('#dialog').classList.add('client-steps-dialog'); ARMS.form.clientStep = 0;
+  const identity = document.createElement('div'); identity.dataset.clientStep = '0'; identity.appendChild(body.firstElementChild);
+  const address = document.createElement('div'); address.dataset.clientStep = '1'; address.hidden = true;
+  Array.from(body.children).filter(node => node !== error).forEach(node => address.appendChild(node));
+  body.prepend(identity, address);
+  form.insertAdjacentHTML('afterbegin', '<nav class="customer-step-nav"><button type="button" class="active" data-action="client-step" data-step="0"><span>1</span>Identitas & Kontak</button><button type="button" data-action="client-step" data-step="1"><span>2</span>Alamat Domisili</button></nav>');
+  form.querySelector('footer').innerHTML = '<span class="step-counter" id="client-step-count">Bagian 1 dari 2</span><div><button class="btn" type="button" id="client-step-back" data-action="client-back">Batal</button><button class="btn primary" type="submit" id="client-step-next">Lanjutkan</button></div>';
+}
+function changeClientStep(step, validate) {
+  if (ARMS.locked) return;
+  if (validate && step > ARMS.form.clientStep) { const invalid = $$('#entity-form [data-client-step="0"] input').find(input => !input.checkValidity()); if (invalid) { invalid.reportValidity(); return; } }
+  ARMS.form.clientStep = step;
+  $$('#entity-form [data-client-step]').forEach(node => { node.hidden = n(node.dataset.clientStep) !== step; });
+  $$('#entity-form .customer-step-nav button').forEach(b => b.classList.toggle('active', n(b.dataset.step) === step));
+  $('#client-step-count').textContent = 'Bagian ' + (step + 1) + ' dari 2'; $('#client-step-back').textContent = step ? 'Kembali' : 'Batal'; $('#client-step-next').textContent = step ? 'Simpan Client' : 'Lanjutkan'; $('#entity-form .dialog-body').scrollTop = 0;
+}
+function canSubmitClient() {
+  if (!ARMS.form.clientStep) { changeClientStep(1, true); return false; }
+  const invalid = $$('#entity-form input, #entity-form select, #entity-form textarea').find(input => !input.checkValidity());
+  if (invalid) { const group = invalid.closest('[data-client-step]'); changeClientStep(group ? n(group.dataset.clientStep) : 0, false); setTimeout(() => invalid.reportValidity(), 40); return false; }
+  return true;
+}
+function letterReminderRows() {
+  const date = crmToday(), interval = Math.min(30, Math.max(1, n(ARMS.db.settings.reportIntervalDays) || 3));
+  return ARMS.db.letters.filter(l => l.status === 'Aktif' && l.number && crmValidDate(l.issuedAt) && l.issuedAt <= date).flatMap(l => {
+    const c = recordById('cases', l.caseId); if (!c) return [];
+    const reports = ARMS.db.collections.filter(log => (log.letterId === l.id || (!log.letterId && log.caseId === l.caseId && log.personnelId === l.personnelId)) && log.activityDate >= l.issuedAt).map(log => log.activityDate);
+    const update = l.updateNote && l.updatedAt ? crmToday(l.updatedAt) : '';
+    const last = [l.issuedAt].concat(reports, update ? [update] : []).filter(crmValidDate).sort().slice(-1)[0];
+    const expired = l.validUntil && crmValidDate(l.validUntil) && l.validUntil < date;
+    const status = c.status === 'Selesai' || expired;
+    const due = status ? expired ? l.validUntil : date : new Date(Date.parse(last) + interval * 86400000).toISOString().slice(0, 10);
+    if (due > date) return [];
+    return [{ letter: l, customer: (customerFor(c) || {}).name || '-', person: (recordById('personnel', l.personnelId) || {}).name || '-', due, last, status, late: Math.max(0, Math.floor((Date.parse(date) - Date.parse(due)) / 86400000)), reason: c.status === 'Selesai' ? 'Kasus selesai, SK masih aktif' : expired ? 'Masa berlaku SK berakhir' : reports.length || update ? 'Laporan perkembangan perlu diperbarui' : 'Belum ada laporan sejak SK terbit' }];
+  }).sort((a, b) => a.status === b.status ? b.late - a.late : a.status ? -1 : 1);
+}
+function remindersHTML() {
+  const rows = letterReminderRows(), expanded = !!ARMS.remindersExpanded, page = Math.min(ARMS.reminderPage || 1, Math.max(1, Math.ceil(rows.length / 5)));
+  return '<section class="panel letter-reminders"><div class="panel-head"><div><h2>Reminder Laporan & Update SK <span class="badge amber">' + rows.length + '</span></h2><p>Update setiap ' + (ARMS.db.settings.reportIntervalDays || 3) + ' hari / berdasarkan tanggal hari ini.</p></div>' + (rows.length > 3 ? '<button class="text-button" data-action="toggle-reminders">' + (expanded ? 'Ringkas' : 'Lihat semua') + '</button>' : '') + '</div>' + (rows.length ? '<div class="reminder-list">' + rows.slice(expanded ? (page - 1) * 5 : 0, expanded ? page * 5 : 3).map(r => '<div class="reminder-row"><div><strong>' + escapeHTML(r.customer) + '</strong><small>' + escapeHTML(r.letter.number + ' / ' + r.person) + '</small></div><div><span>' + escapeHTML(r.reason) + '</span><small>Update ' + escapeHTML(dateLabel(r.last)) + (r.late ? ' / lewat ' + r.late + ' hari' : '') + '</small></div><div class="reminder-actions"><button class="btn small" data-action="sk-report" data-id="' + escapeHTML(r.letter.id) + '">Buat laporan</button><button class="text-button" data-action="letter" data-id="' + escapeHTML(r.letter.id) + '">Update SK &nearr;</button></div></div>').join('') + '</div>' : '<p class="reminder-clear">Tidak ada SK yang perlu ditindaklanjuti saat ini.</p>') + (expanded ? '<div class="pagination"><span>' + rows.length + ' reminder</span><div><button class="btn" data-action="reminder-page" data-page="' + (page - 1) + '"' + (page <= 1 ? ' disabled' : '') + '>&larr;</button><span>' + page + ' / ' + Math.max(1, Math.ceil(rows.length / 5)) + '</span><button class="btn" data-action="reminder-page" data-page="' + (page + 1) + '"' + (page * 5 >= rows.length ? ' disabled' : '') + '>&rarr;</button></div></div>' : '') + '</section>';
+}
+function renderReminderSection() {
+  const dashboard = $('#module-dashboard'); if (!dashboard) return;
+  const old = dashboard.querySelector('.letter-reminders'); if (old) old.remove();
+  const stats = dashboard.querySelector('.stats'); if (stats) stats.insertAdjacentHTML('afterend', remindersHTML());
+}
+</script>

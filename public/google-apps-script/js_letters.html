@@ -1,0 +1,122 @@
+<script>
+const LETTER_GENERATOR_URL = 'https://generator-surat-new.vercel.app/';
+const MAX_LETTER_PDF_BYTES = 5 * 1024 * 1024;
+let letterPdfState = null;
+
+function applyLetterCaseDefaults() {
+  const c = recordById('cases', ARMS.letter.caseId), client = c ? recordById('clients', c.clientId) : null;
+  ARMS.letter.personnelId = c ? (assigneeFor(c.id) || {}).id || '' : '';
+  ARMS.letter.clientRepresentative = client ? client.industry === 'PERORANGAN' ? client.name : client.contactPerson || '' : '';
+  ARMS.letter.clientAddress = client ? client.address || '' : '';
+}
+
+function renderLetterWorkspace() {
+  const l = ARMS.letter, c = recordById('cases', l.caseId), stored = l.id ? recordById('letters', l.id) : null;
+  l.customerId = l.customerId || (c || {}).customerId || '';
+  const relationLocked = !!(stored && stored.pdfUrl) || ARMS.db.collections.some(log => l.id && log.letterId === l.id);
+  const options = [{ value: '', label: 'Pilih kasus terkait' }].concat(ARMS.db.cases.filter(item => item.customerId === l.customerId).map(item => ({ value: item.id, label: item.number + ' / ' + item.client })));
+  const multi = !c || c.clientType !== 'PERORANGAN';
+  $('#module-letters').innerHTML = '<div class="stack"><div class="letter-editor-tools no-print"><button class="text-button" data-action="back-letters">&larr; Kembali ke daftar surat</button><span>Penugasan & arsip PDF</span></div>' +
+    '<form id="letter-form" class="panel no-print"><div class="panel-head"><div><h2>Parameter Surat Tugas & Kuasa</h2><p>Kelola penugasan dan arsip dokumen PDF.</p></div>' + icon('file') + '</div><fieldset id="letter-metadata-fields" class="letter-metadata-fieldset"><div class="letter-fields-grid">' +
+    field('Debitur', 'customerId', l.customerId, { options: customerOptions(), required: true, disabled: relationLocked }) +
+    field('Kasus terkait', 'caseId', l.caseId, { options, required: true, disabled: relationLocked || !l.customerId, hint: relationLocked ? 'Relasi dikunci karena SK memiliki PDF atau laporan.' : 'Simpan kasus terlebih dahulu sebelum membuat penugasan.' }) +
+    field('Nomor surat', 'number', l.number || 'Otomatis setelah penugasan disimpan', { disabled: true }) +
+    field('Status', 'status', l.status, { options: ['Aktif', 'Draft', 'Selesai', 'Dicabut'] }) +
+    field('Tanggal terbit', 'issuedAt', l.issuedAt, { type: 'date', required: true }) +
+    field('Berlaku sampai', 'validUntil', l.validUntil, { type: 'date' }) +
+    field('Petugas', 'personnelId', l.personnelId, { options: personnelOptions(), required: true, disabled: relationLocked }) +
+    field('Penandatangan', 'signer', l.signer, { required: true }) +
+    field('Tempat', 'place', l.place, { required: true }) +
+    field(multi ? 'Perwakilan klien / jabatan' : 'Pemberi kuasa', 'clientRepresentative', l.clientRepresentative, { required: true }) +
+    (!multi ? field('Alamat pemberi kuasa', 'clientAddress', l.clientAddress, { textarea: true, full: true, required: true }) : '') +
+    field('Catatan update SK', 'updateNote', l.updateNote, { textarea: true, full: true, hint: 'Isi perkembangan untuk memperbarui reminder laporan.' }) +
+    '<div id="letter-error" class="inline-error span-2" hidden></div></div><footer class="letter-metadata-footer"><span id="letter-save-state">' + (l.saved ? 'PENUGASAN TERSIMPAN' : 'BELUM DISIMPAN') + '</span><div class="letter-save-actions"><a class="btn" href="' + LETTER_GENERATOR_URL + '" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">' + icon('arrow') + 'Buka Generator Surat</a><button class="btn primary" id="save-letter-button" type="submit"' + (!l.caseId ? ' disabled' : '') + '>' + icon('save') + 'Simpan Penugasan</button></div></footer></fieldset></form>' +
+    '<section id="letter-pdf-section" class="panel no-print"></section></div>';
+  if (!letterPdfState || letterPdfState.letterId !== l.id || (stored && letterPdfState.previous !== (stored.pdfUrl || ''))) letterPdfState = null;
+  renderLetterPdfForm();
+}
+
+function pdfSizeLabel(value) {
+  const size = Number(value || 0);
+  return size >= 1024 * 1024 ? (size / 1024 / 1024).toLocaleString('id-ID', { maximumFractionDigits: 2 }) + ' MB' : Math.max(1, Math.ceil(size / 1024)) + ' KB';
+}
+function renderLetterPdfForm() {
+  const l = ARMS.letter, section = $('#letter-pdf-section'); if (!l || !section) return;
+  const stored = l.id ? recordById('letters', l.id) : null, selected = letterPdfState && letterPdfState.letterId === l.id ? letterPdfState.upload : null;
+  section.innerHTML = '<div class="panel-head"><div><h2>Upload PDF Surat Tugas / Kuasa</h2><p>Simpan dokumen final yang dibuat melalui generator surat.</p></div>' + (stored && stored.pdfUrl ? badge('PDF tersimpan') : icon('file')) + '</div>' +
+    '<form id="letter-pdf-form"><fieldset id="letter-pdf-fields" class="letter-pdf-fieldset"><div class="letter-pdf-body">' +
+    field('Penugasan terkait', 'pdfLetterNumber', stored ? stored.number : 'Simpan penugasan terlebih dahulu', { disabled: true }) +
+    (stored && stored.pdfUrl ? '<div class="letter-pdf-current">' + icon('file') + '<div><strong>' + escapeHTML(stored.pdfName || 'surat-penugasan.pdf') + '</strong><small>' + pdfSizeLabel(stored.pdfSize) + (stored.pdfUploadedAt ? ' / Diunggah ' + dateLabel(stored.pdfUploadedAt) : '') + '</small></div><button type="button" class="text-button" data-action="download-letter-pdf" data-id="' + escapeHTML(stored.id) + '">' + icon('download') + 'Unduh PDF</button></div>' : '') +
+    '<label class="pdf-upload-area"><input id="letter-pdf-file" type="file" accept="application/pdf,.pdf" aria-label="Pilih PDF surat tugas atau kuasa">' + icon('file') + '<span><strong id="letter-pdf-selected-name">' + escapeHTML(selected ? selected.name : stored && stored.pdfUrl ? 'Pilih PDF pengganti' : 'Pilih PDF Surat Tugas / Kuasa') + '</strong><small id="letter-pdf-selected-size">' + (selected ? pdfSizeLabel(selected.size) + ' / Siap diunggah' : 'Format .pdf, maksimal 5 MB') + '</small></span></label>' +
+    '<div class="pdf-selection-actions" id="letter-pdf-selection-actions"' + (!selected ? ' hidden' : '') + '><span>Dokumen belum diunggah.</span><button type="button" class="text-button" data-action="clear-letter-pdf">&times; Batalkan pilihan</button></div>' +
+    '<p class="form-note" id="letter-pdf-note"></p>' +
+    (stored && stored.pdfUrl ? '<p class="form-note">PDF lama hanya diganti setelah unggahan baru berhasil. Unduh salinannya jika masih diperlukan.</p>' : '') +
+    '<div id="letter-pdf-error" class="inline-error" hidden></div></div><footer class="letter-pdf-footer"><span>Satu PDF final per penugasan.</span><button class="btn primary" id="letter-pdf-submit" type="submit">' + icon('plus') + (stored && stored.pdfUrl ? 'Ganti PDF Surat' : 'Upload PDF Surat') + '</button></footer></fieldset></form>';
+  updateLetterFormState();
+}
+function updateLetterFormState() {
+  if (!ARMS.letter) return;
+  const saved = ARMS.letter.id && ARMS.letter.saved && recordById('letters', ARMS.letter.id);
+  const fields = $('#letter-pdf-fields');
+  if (fields) fields.disabled = !saved || !!ARMS.pdfBusy;
+  const submit = $('#letter-pdf-submit'); if (submit) submit.disabled = !saved || !letterPdfState || !letterPdfState.upload || !!ARMS.pdfBusy;
+  const metadata = $('#letter-metadata-fields'); if (metadata) metadata.disabled = !!ARMS.pdfBusy;
+  const note = $('#letter-pdf-note');
+  if (note) note.textContent = !ARMS.letter.id ? 'Simpan penugasan terlebih dahulu untuk mendapatkan nomor surat.' : !ARMS.letter.saved ? 'Simpan perubahan penugasan sebelum mengunggah PDF agar relasi dokumen tetap benar.' : 'PDF disimpan di Google Drive terbatas. Unggahan tidak mengubah status atau catatan laporan SK.';
+  if ($('#letter-save-state')) $('#letter-save-state').textContent = ARMS.letter.saved ? 'PENUGASAN TERSIMPAN' : 'BELUM DISIMPAN';
+  if ($('#save-letter-button')) $('#save-letter-button').disabled = !ARMS.letter.caseId || !!ARMS.pdfBusy;
+}
+function pdfError(error) { const element = $('#letter-pdf-error'); if (element) { element.textContent = error.message || String(error); element.hidden = false; } else toast(error.message || String(error), true); }
+function setLetterPdfBusy(value) { ARMS.pdfBusy = value; ARMS.locked = value; updateLetterFormState(); }
+
+async function validateLetterPdfBlob(blob) {
+  if (!blob.size || blob.size > MAX_LETTER_PDF_BYTES) throw new Error('PDF harus berukuran lebih dari 0 dan maksimal 5 MB.');
+  const header = new TextDecoder().decode(await blob.slice(0, 8).arrayBuffer());
+  const tail = new TextDecoder().decode(await blob.slice(Math.max(0, blob.size - 4096)).arrayBuffer());
+  if (!/^%PDF-\d\.\d/.test(header) || !tail.includes('%%EOF')) throw new Error('File bukan PDF yang valid atau dokumennya belum lengkap.');
+}
+async function chooseLetterPdf(input) {
+  const file = input.files && input.files[0]; input.value = '';
+  if (!file || ARMS.locked || !ARMS.letter || !ARMS.letter.id || !ARMS.letter.saved) return;
+  const id = ARMS.letter.id, stored = recordById('letters', id);
+  if (!stored) return pdfError(new Error('Penugasan belum tersimpan.'));
+  setLetterPdfBusy(true); letterPdfState = null;
+  if ($('#letter-pdf-error')) $('#letter-pdf-error').hidden = true;
+  $('#letter-pdf-selected-name').textContent = 'Memeriksa PDF...';
+  try {
+    if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== 'application/pdf')) throw new Error('Hanya file .pdf yang dapat diunggah.');
+    await validateLetterPdfBlob(file);
+    const blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
+    const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error('PDF tidak dapat dibaca.')); reader.readAsDataURL(blob); });
+    const name = file.name.replace(/[\\/\x00-\x1f\x7f]/g, '_').slice(0, -4).slice(0, 145) + '.pdf';
+    letterPdfState = { letterId: id, previous: stored.pdfUrl || '', uploadId: crypto.randomUUID(), upload: { name, mimeType: 'application/pdf', dataUrl, size: blob.size } };
+    renderLetterPdfForm();
+  } catch (error) { renderLetterPdfForm(); pdfError(error); }
+  finally { setLetterPdfBusy(false); }
+}
+async function submitLetterPdf() {
+  if (ARMS.locked || !letterPdfState || !ARMS.letter || !ARMS.letter.saved || letterPdfState.letterId !== ARMS.letter.id) return;
+  const selection = letterPdfState; setLetterPdfBusy(true);
+  $('#letter-pdf-error').hidden = true; $('#letter-pdf-submit').textContent = 'Mengunggah PDF...';
+  try {
+    const saved = await rpc('uploadSKPdf', selection.letterId, selection.upload, selection.uploadId, selection.previous);
+    ARMS.db.letters = ARMS.db.letters.map(l => l.id === saved.id ? saved : l);
+    ARMS.letter = Object.assign({}, saved, { saved: true }); letterPdfState = null;
+    renderAll(); toast('PDF berhasil diunggah dan terhubung ke penugasan.');
+  } catch (error) { pdfError(error); }
+  finally { setLetterPdfBusy(false); if ($('#letter-pdf-submit')) $('#letter-pdf-submit').textContent = ARMS.letter && ARMS.letter.pdfUrl ? 'Ganti PDF Surat' : 'Upload PDF Surat'; }
+}
+async function downloadLetterPdf(id) {
+  if (ARMS.locked) return; ARMS.locked = true;
+  try {
+    const upload = await rpc('getSKPdf', id);
+    if (upload.mimeType !== 'application/pdf' || typeof upload.dataUrl !== 'string' || upload.dataUrl.length > 7000000 || !/^data:application\/pdf;base64,[A-Za-z0-9+/]+={0,2}$/.test(upload.dataUrl)) throw new Error('Data dokumen PDF tidak valid.');
+    const bytes = Uint8Array.from(atob(upload.dataUrl.split(',')[1]), c => c.charCodeAt(0)), blob = new Blob([bytes], { type: 'application/pdf' });
+    if (blob.size !== Number(upload.size)) throw new Error('Ukuran dokumen PDF tidak sesuai.');
+    await validateLetterPdfBlob(blob);
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = String(upload.name || 'surat-penugasan.pdf').replace(/[\\/\x00-\x1f\x7f]/g, '_'); document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 3000);
+  } catch (error) { toast(error.message, true); }
+  finally { ARMS.locked = false; }
+}
+</script>

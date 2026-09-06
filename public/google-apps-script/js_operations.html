@@ -1,0 +1,128 @@
+<script>
+const FINANCE_ENTITIES = ['executions', 'accounts', 'transactions'];
+const EXECUTION_STATUSES = ['Dijadwalkan', 'Dalam Proses', 'Selesai', 'Dibatalkan'];
+const PROCESS_STATUSES = ['Baru', 'Dalam penagihan', 'Janji bayar', 'Mediasi', 'Pembayaran sebagian', 'Tarik unit', 'Unit ditarik', 'Berhasil', 'Ditunda'];
+const FINANCE_SOURCES = [{ value: 'multifinance', label: 'Fee dari Client / Creditor' }, { value: 'payment', label: 'Fee dari pembayaran debitur' }, { value: 'execution', label: 'Fee dari tarik unit selesai' }, { value: 'case', label: 'Fee tambahan kasus selesai' }, { value: 'manual', label: 'Manual / operasional' }];
+function caseSuccessfulClient(c) { return !!c && (c.status === 'Selesai' || (n(c.principal) > 0 && paidFor(c.id) >= n(c.principal))); }
+function customerProcessClient(id) {
+  const cases = ARMS.db.cases.filter(c => c.customerId === id);
+  if (!cases.length) return { label: 'Baru', progress: 10, detail: 'Belum memiliki kasus' };
+  if (cases.every(caseSuccessfulClient)) return { label: 'Berhasil', progress: 100, detail: 'Seluruh kasus selesai' };
+  const active = cases.filter(c => !caseSuccessfulClient(c));
+  const executions = ARMS.db.executions.filter(e => active.some(c => c.id === e.caseId) && e.status !== 'Dibatalkan');
+  if (executions.some(e => e.status !== 'Selesai')) return { label: 'Tarik unit', progress: 70, detail: 'Penarikan berjalan' };
+  if (executions.some(e => e.status === 'Selesai')) return { label: 'Unit ditarik', progress: 85, detail: 'Menunggu penyelesaian kasus' };
+  const paid = active.reduce((sum, c) => sum + paidFor(c.id), 0);
+  if (paid > 0) return { label: 'Pembayaran sebagian', progress: Math.min(90, Math.max(30, Math.round(paid / active.reduce((s, c) => s + n(c.principal), 0) * 100))), detail: rupiah(paid) + ' diterima' };
+  if (active.every(c => c.status === 'Ditunda')) return { label: 'Ditunda', progress: 20, detail: 'Penanganan ditunda' };
+  const latest = ARMS.db.collections.filter(l => active.some(c => c.id === l.caseId)).sort((a, b) => b.activityDate.localeCompare(a.activityDate) || b.createdAt.localeCompare(a.createdAt))[0];
+  if (latest && latest.outcome === COLLECTION_OUTCOMES[0]) return { label: 'Janji bayar', progress: 45, detail: 'Target ' + dateLabel(latest.nextActionDate) };
+  if (latest && latest.outcome === COLLECTION_OUTCOMES[2]) return { label: 'Mediasi', progress: 40, detail: latest.actionPlan || 'Menunggu mediasi kantor' };
+  return { label: 'Dalam penagihan', progress: 25, detail: active.length + ' kasus aktif' };
+}
+function processHTML(id) {
+  const p = customerProcessClient(id);
+  return '<div class="customer-process" title="' + escapeHTML(p.detail) + '">' + badge(p.label) + '<span class="process-track' + (p.label === 'Berhasil' ? ' complete' : '') + '"><i style="width:' + p.progress + '%"></i></span></div>';
+}
+function feePostedClient(type, id, direction, excludeId) {
+  return ARMS.db.transactions.filter(t => t.sourceType === type && t.sourceId === id && t.type === direction && t.id !== excludeId).reduce((s, t) => s + n(t.amount), 0);
+}
+function financeSourcesClient() {
+  return ARMS.db.payments.map(p => ({ id: p.id, type: 'payment', number: p.number, caseId: p.caseId, amount: n(p.grossFee) + n(p.manualTotal), partner: n(p.partnerCommission) })).concat(ARMS.db.executions.filter(e => e.status === 'Selesai').map(e => ({ id: e.id, type: 'execution', number: e.number, caseId: e.caseId, amount: n(e.grossFee), partner: n(e.partnerCommission) }))).map(s => Object.assign(s, { recorded: feePostedClient(s.type, s.id, 'Pemasukan'), remaining: Math.max(0, s.amount - feePostedClient(s.type, s.id, 'Pemasukan')) }));
+}
+function accountBalanceClient(id) {
+  return n((recordById('accounts', id) || {}).openingBalance) + ARMS.db.transactions.filter(t => t.accountId === id).reduce((sum, t) => sum + (t.type === 'Pemasukan' ? n(t.amount) : -n(t.amount)), 0);
+}
+function renderExecutions() {
+  const active = ARMS.db.executions.filter(e => ['Dijadwalkan', 'Dalam Proses'].includes(e.status)).length;
+  const done = ARMS.db.executions.filter(e => e.status === 'Selesai');
+  $('#module-executions').innerHTML = '<div class="stack"><div class="finance-totals"><div><span>Penugasan berjalan</span><strong>' + active + ' unit</strong></div><div><span>Unit selesai ditarik</span><strong>' + done.length + ' unit</strong></div><div><span>Fee penarikan selesai</span><strong>' + compact(done.reduce((s, e) => s + n(e.grossFee), 0)) + '</strong></div></div><section class="panel">' + tableHTML('executions') + '</section><p class="form-note">Penarikan unit tidak otomatis melunasi piutang. Catat penerimaan fee aktual pada menu Rekening.</p></div>';
+}
+function renderAccountsModule() {
+  const tab = ARMS.accountsTab || 'transactions';
+  const income = ARMS.db.transactions.filter(t => t.type === 'Pemasukan').reduce((s, t) => s + n(t.amount), 0);
+  const expense = ARMS.db.transactions.filter(t => t.type === 'Pengeluaran').reduce((s, t) => s + n(t.amount), 0);
+  const balance = ARMS.db.accounts.reduce((s, a) => s + accountBalanceClient(a.id), 0);
+  const tabs = [{ id: 'transactions', label: 'Mutasi rekening' }, { id: 'accounts', label: 'Daftar rekening' }, { id: 'fees', label: 'Fee belum dicatat' }];
+  $('#module-accounts').innerHTML = '<div class="stack"><div class="finance-totals"><div><span>Saldo saat ini</span><strong>' + compact(balance) + '</strong></div><div><span>Pemasukan fee aktual</span><strong class="green-text">' + compact(income) + '</strong></div><div><span>Pengeluaran</span><strong>' + compact(expense) + '</strong></div></div><section class="panel"><div class="account-tabs">' + tabs.map(t => '<button class="' + (tab === t.id ? 'active' : '') + '" data-action="account-tab" data-tab="' + t.id + '">' + t.label + '</button>').join('') + (ARMS.db.currentUser.role !== 'Collector' ? '<button class="text-button" data-action="add" data-entity="accounts">' + icon('plus') + 'Tambah rekening</button>' : '') + '</div>' + (tab === 'fees' ? feeQueueHTML() : tableHTML(tab, tab)) + '</section><p class="form-note">Saldo berasal dari saldo awal dan mutasi aktual. Pokok pembayaran debitur tidak otomatis menjadi pemasukan fee.</p></div>';
+}
+function feeQueueHTML() {
+  const sources = financeSourcesClient().filter(s => s.remaining > 0);
+  const pages = Math.max(1, Math.ceil(sources.length / 10)), page = Math.min(ARMS.pages.fees || 1, pages); ARMS.pages.fees = page;
+  return '<div class="table-scroll"><table><thead><tr><th>Sumber fee</th><th>Kasus / Debitur</th><th>Hak fee</th><th>Sudah diterima</th><th>Belum dicatat</th><th></th></tr></thead><tbody>' + sources.slice((page - 1) * 10, page * 10).map(s => { const c = recordById('cases', s.caseId); return '<tr><td>' + escapeHTML(s.number) + '<small>' + (s.type === 'execution' ? 'Tarik unit selesai' : 'Fee pembayaran') + '</small></td><td>' + escapeHTML((c || {}).number || '-') + '<small>' + escapeHTML((customerFor(c) || {}).name || '-') + '</small></td><td>' + rupiah(s.amount) + '</td><td>' + rupiah(s.recorded) + '</td><td class="green-text">' + rupiah(s.remaining) + '</td><td>' + (ARMS.db.currentUser.role !== 'Collector' ? '<button class="btn small" data-action="record-source-fee" data-type="' + s.type + '" data-id="' + escapeHTML(s.id) + '">Catat masuk</button>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' + (!sources.length ? '<div class="empty">Tidak ada fee yang belum dicatat.</div>' : '') + '<div class="pagination"><span>' + sources.length + ' sumber fee</span><div><button class="btn" data-action="page" data-scope="fees" data-page="' + (page - 1) + '"' + (page <= 1 ? ' disabled' : '') + '>&larr;</button><span>' + page + ' / ' + pages + '</span><button class="btn" data-action="page" data-scope="fees" data-page="' + (page + 1) + '"' + (page >= pages ? ' disabled' : '') + '>&rarr;</button></div></div>';
+}
+function financeRowCells(entity, r) {
+  const link = value => '<button class="row-link"' + actionData('detail', entity, r.id) + '>' + escapeHTML(value) + '</button>';
+  if (entity === 'executions') {
+    const c = recordById('cases', r.caseId), customer = customerFor(c);
+    return [link(r.number) + '<small>' + escapeHTML((customer || {}).name || '-') + '</small>', escapeHTML((customer || {}).brandType || (c || {}).asset || '-') + '<small>' + escapeHTML((c || {}).client || '-') + '</small>', escapeHTML(dateLabel(r.date)) + '<small>' + escapeHTML((recordById('personnel', r.personnelId) || {}).name || '-') + '</small>', rupiah(r.grossFee) + '<small>' + n(r.feeRate) + '% x ' + rupiah(r.feeBase) + '</small>', '<span class="green-text">' + rupiah(r.companyRevenue) + '</span>', badge(r.status)];
+  }
+  if (entity === 'accounts') return [link(r.name), escapeHTML(r.bank), escapeHTML(r.number), escapeHTML(r.holder), '<span class="money">' + rupiah(accountBalanceClient(r.id)) + '</span>'];
+  return [link(r.number) + '<small>' + escapeHTML(dateLabel(r.date)) + '</small>', escapeHTML((recordById('accounts', r.accountId) || {}).name || '-'), escapeHTML(r.description) + '<small>' + escapeHTML(r.client || r.category) + '</small>', badge(r.type), '<span class="' + (r.type === 'Pemasukan' ? 'green-text' : 'money') + '">' + (r.type === 'Pemasukan' ? '+' : '-') + rupiah(r.amount) + '</span>', escapeHTML(r.reference)];
+}
+function financeFieldsHTML(entity, data) {
+  if (entity === 'accounts') return '<div class="form-grid">' + field('Nama rekening', 'name', data.name, { required: true, full: true }) + field('Bank / jenis kas', 'bank', data.bank, { required: true }) + field('Nomor rekening / kode kas', 'number', data.number, { required: true }) + field('Atas nama', 'holder', data.holder || ARMS.db.settings.agency, { required: true, full: true }) + field('Saldo awal (Rp)', 'openingBalance', data.openingBalance || 0, { type: 'number', required: true, full: true }) + '</div>';
+  if (entity === 'executions') {
+    const options = [{ value: '', label: 'Pilih kasus aktif' }].concat(ARMS.db.cases.filter(c => (ARMS.form.id && data.caseId === c.id) || (!caseSuccessfulClient(c) && !ARMS.db.executions.some(e => e.caseId === c.id && e.status !== 'Dibatalkan'))).map(c => ({ value: c.id, label: c.number + ' / ' + ((customerFor(c) || {}).name || '') })));
+    return '<div class="form-grid">' + field('Kasus / debitur', 'caseId', data.caseId, { options, required: true, full: true }) + field('Tanggal pelaksanaan', 'date', data.date || today(), { type: 'date', required: true }) + field('Petugas', 'personnelId', data.personnelId, { options: personnelOptions(), required: true }) + field('Metode penarikan', 'method', data.method || 'Penyerahan Sukarela', { options: ['Penyerahan Sukarela', 'Eksekusi Sesuai Dokumen'] }) + field('Status pelaksanaan', 'status', data.status || 'Dijadwalkan', { options: EXECUTION_STATUSES }) + field('Lokasi / alamat unit', 'location', data.location, { required: true, full: true }) + field('Referensi kuasa / dokumen sah', 'authorityRef', data.authorityRef, { required: true }) + field('Nomor BAST / serah terima', 'handoverRef', data.handoverRef, { required: data.status === 'Selesai' }) + '</div><h3 class="form-label">Perhitungan fee penarikan</h3><div class="form-grid">' + field('Dasar fee (Rp)', 'feeBase', data.feeBase || 0, { type: 'number', required: true }) + field('Persentase fee (%)', 'feeRate', data.feeRate == null ? 10 : data.feeRate, { type: 'number', max: 100, required: true }) + field('Hak mitra (%)', 'partnerRate', data.partnerRate == null ? ARMS.db.settings.partnerRate : data.partnerRate, { type: 'number', max: 100, required: true }) + '</div><div id="execution-fees" class="fee-summary"></div>' + field('Catatan', 'notes', data.notes, { textarea: true }) + '<p class="form-note">Penarikan hanya sesuai persetujuan dan dokumen sah. Penarikan selesai tidak otomatis melunasi piutang atau menambah saldo.</p>';
+  }
+  const type = data.type || 'Pemasukan', sourceType = data.sourceType || 'multifinance';
+  let sourceField = '';
+  if (['payment', 'execution', 'case'].includes(sourceType)) {
+    const options = [{ value: '', label: 'Pilih sumber fee' }].concat(sourceType === 'case' ? ARMS.db.cases.filter(caseSuccessfulClient).map(c => ({ value: c.id, label: c.number + ' / ' + c.client })) : financeSourcesClient().filter(s => s.type === sourceType && (s.id === data.sourceId || (type === 'Pemasukan' ? s.remaining : s.partner - feePostedClient(s.type, s.id, 'Pengeluaran')) > 0)).map(s => ({ value: s.id, label: s.number + ' / ' + ((customerFor(recordById('cases', s.caseId)) || {}).name || '') })));
+    sourceField = field('Referensi kasus / sumber fee', 'sourceId', data.sourceId, { options, required: true, full: true });
+  } else sourceField = sourceType === 'multifinance' ? field('Client / Creditor', 'clientId', data.clientId, { required: true, full: true, options: crmClientOptions() }) : field('Pihak terkait', 'client', data.client, { full: true });
+  return (!ARMS.db.accounts.length ? '<div class="inline-error">Tambahkan rekening terlebih dahulu.</div>' : '') + '<div class="form-grid">' + field('Jenis mutasi', 'type', type, { options: ['Pemasukan', 'Pengeluaran'] }) + field('Rekening', 'accountId', data.accountId || (ARMS.db.accounts[0] || {}).id, { options: [{ value: '', label: 'Pilih rekening' }].concat(ARMS.db.accounts.map(a => ({ value: a.id, label: a.name + ' / ' + a.bank }))), required: true }) + field('Tanggal transaksi', 'date', data.date || today(), { type: 'date', required: true }) + field('Sumber transaksi', 'sourceType', sourceType, { options: FINANCE_SOURCES }) + sourceField + '<div id="transaction-source-info" class="calc-summary span-2" hidden></div>' + field('Nominal aktual (Rp)', 'amount', data.amount || 0, { type: 'number', min: 1, required: true }) + field('Kategori', 'category', data.category || (type === 'Pemasukan' ? 'Fee Klien' : 'Operasional'), { options: type === 'Pemasukan' ? ['Fee Klien', 'Fee Penagihan', 'Fee Tarik Unit', 'Fee Kasus Selesai', 'Lainnya'] : ['Operasional', 'Komisi Mitra', 'Administrasi', 'Transportasi', 'Lainnya'] }) + field('No. referensi / bukti transfer', 'reference', data.reference, { required: true, full: true }) + field('Keterangan', 'description', data.description, { textarea: true, required: true, full: true }) + '</div><p class="form-note">Hanya uang yang benar-benar diterima atau dibayarkan yang dicatat di rekening. Sumber fee dicek untuk mencegah pencatatan berlebih.</p>';
+}
+function recalculateExecution() {
+  if (!$('#execution-fees')) return;
+  const amount = n(formControl('feeBase').value), rate = n(formControl('feeRate').value), partner = n(formControl('partnerRate').value);
+  const totals = calculateFees(amount, rate, partner, []);
+  $('#execution-fees').innerHTML = '<div><span>Gross fee</span><strong>' + rupiah(totals.grossFee) + '</strong></div><div><span>Hak perusahaan</span><strong class="green-text">' + rupiah(totals.companyRevenue) + '</strong></div><div><span>Hak mitra</span><strong>' + rupiah(totals.partnerCommission) + '</strong></div>';
+  formControl('handoverRef').required = formControl('status').value === 'Selesai';
+}
+function updateTransactionSource(fill) {
+  if (!$('#transaction-source-info')) return;
+  const type = formControl('type').value, sourceType = formControl('sourceType').value, id = formControl('sourceId') ? formControl('sourceId').value : '';
+  const source = financeSourcesClient().find(s => s.type === sourceType && s.id === id);
+  $('#transaction-source-info').hidden = !source;
+  formControl('amount').removeAttribute('max');
+  if (source) {
+    const remaining = Math.max(0, (type === 'Pemasukan' ? source.amount : source.partner) - feePostedClient(sourceType, id, type, ARMS.form.id));
+    $('#transaction-source-info').innerHTML = '<span>Sisa ' + (type === 'Pemasukan' ? 'fee belum diterima' : 'komisi belum dibayarkan') + '</span><strong>' + rupiah(remaining) + '</strong>';
+    formControl('amount').max = remaining;
+    formControl('category').value = type === 'Pengeluaran' ? 'Komisi Mitra' : sourceType === 'execution' ? 'Fee Tarik Unit' : 'Fee Penagihan';
+    if (fill) { formControl('amount').value = remaining; formControl('description').value = (type === 'Pemasukan' ? 'Penerimaan fee ' : 'Pembayaran komisi ') + source.number; }
+  }
+}
+function financeChanged(input) {
+  if (ARMS.form.entity === 'executions') {
+    if (input.name === 'caseId') { const c = recordById('cases', input.value); formControl('feeBase').value = n((c || {}).principal); formControl('location').value = (customerFor(c) || {}).address || ''; formControl('personnelId').value = (assigneeFor(input.value) || {}).id || ''; }
+    recalculateExecution();
+  }
+  if (ARMS.form.entity === 'transactions') {
+    if (['type', 'sourceType'].includes(input.name)) {
+      const entity = ARMS.form.entity, id = ARMS.form.id;
+      const values = Object.assign({}, ARMS.form.data, Object.fromEntries(new FormData($('#entity-form'))), { sourceId: '', caseId: '', amount: 0 });
+      openForm(entity, id, values);
+    } else if (input.name === 'sourceId') updateTransactionSource(true);
+  }
+}
+function financePayload(entity, data) {
+  ['feeBase', 'feeRate', 'partnerRate', 'amount', 'openingBalance'].forEach(key => { if (key in data) data[key] = n(data[key]); });
+  if (entity === 'executions') Object.assign(data, calculateFees(data.feeBase, data.feeRate, data.partnerRate, []));
+  if (entity === 'transactions') { data.sourceId = data.sourceId || ''; data.caseId = ''; data.client = data.client || ''; }
+}
+function openFinanceDetail(entity, id) {
+  const r = recordById(entity, id); if (!r) return;
+  let items = [], title = r.name || r.number;
+  if (entity === 'executions') {
+    const c = recordById('cases', r.caseId);
+    items = [['Kasus', (c || {}).number], ['Debitur', (customerFor(c) || {}).name], ['Petugas', (recordById('personnel', r.personnelId) || {}).name], ['Tanggal', dateLabel(r.date)], ['Status', r.status], ['Metode', r.method], ['Lokasi', r.location], ['Dokumen kuasa', r.authorityRef], ['BAST', r.handoverRef], ['Dasar fee', rupiah(r.feeBase)], ['Persentase fee', r.feeRate + '%'], ['Gross fee', rupiah(r.grossFee)], ['Hak perusahaan', rupiah(r.companyRevenue)], ['Hak mitra', rupiah(r.partnerCommission)], ['Catatan', r.notes]];
+  }
+  if (entity === 'accounts') items = [['Bank', r.bank], ['Nomor rekening', r.number], ['Atas nama', r.holder], ['Saldo awal', rupiah(r.openingBalance)], ['Saldo saat ini', rupiah(accountBalanceClient(r.id))]];
+  if (entity === 'transactions') items = [['Rekening', (recordById('accounts', r.accountId) || {}).name], ['Tanggal', dateLabel(r.date)], ['Jenis', r.type], ['Kategori', r.category], ['Nominal', rupiah(r.amount)], ['Klien', r.client], ['Referensi', r.reference], ['Keterangan', r.description], ['Sumber', (FINANCE_SOURCES.find(s => s.value === r.sourceType) || {}).label]];
+  const canWrite = ARMS.db.currentUser.role !== 'Collector';
+  openDialog(title, 'Detail ' + ENTITY_LABELS[entity].toLowerCase(), '<div class="dialog-body"><dl class="detail-grid">' + items.map(([label, value]) => '<div><dt>' + escapeHTML(label) + '</dt><dd>' + escapeHTML(value == null || value === '' ? '-' : value) + '</dd></div>').join('') + '</dl>' + (entity === 'executions' && r.status === 'Selesai' && canWrite ? '<div class="detail-actions"><button class="btn" data-action="record-source-fee" data-type="execution" data-id="' + escapeHTML(r.id) + '">Catat penerimaan fee</button></div>' : '') + '</div><footer>' + (canWrite ? '<button class="btn danger"' + actionData('delete', entity, r.id) + '>Hapus</button>' : '<span></span>') + (canWrite || entity === 'executions' ? '<button class="btn primary"' + actionData('edit', entity, r.id) + '>Edit data</button>' : '') + '</footer>');
+}
+</script>

@@ -1,0 +1,115 @@
+<script>
+const BULK_HEADERS = ['No. Kontrak', 'Nama', 'Kabupaten/Kota', 'Kecamatan', 'Kelurahan / Desa', 'Alamat Lengkap', 'Tanggal Jatuh Tempo', 'Angsuran', 'Denda', 'Total Angsuran (Rp)', 'Nomor Handphone', 'Merk/Type', 'Nomor Polisi', 'NIK (Opsional)'];
+const BULK_KEYS = ['contract', 'name', 'regency', 'district', 'village', 'streetAddress', 'dueDate', 'installment', 'penalty', 'total', 'phone', 'brandType', 'plate', 'nik'];
+let bulkState = null, excelJsPromise;
+function loadExcelJs() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (!excelJsPromise) excelJsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    script.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('Pustaka Excel tidak tersedia.'));
+    script.onerror = () => reject(new Error('Pustaka Excel gagal dimuat. Periksa koneksi.')); document.head.appendChild(script);
+  }).catch(error => { excelJsPromise = null; throw error; });
+  return excelJsPromise;
+}
+function openBulkImport() {
+  bulkState = { batchId: crypto.randomUUID(), rows: [], file: '', busy: false };
+  ARMS.form = null;
+  openDialog('Import Bulk Debitor', 'Impor spreadsheet dengan validasi seluruh baris sebelum penyimpanan.', '<div class="dialog-body"><div class="bulk-import-controls"><button class="btn" data-action="bulk-template">' + icon('download') + 'Template .xlsx</button><label class="btn primary logo-upload">' + icon('plus') + 'Pilih Spreadsheet<input type="file" id="bulk-file" accept=".xlsx,.csv" aria-label="Pilih spreadsheet debitur"></label></div><p class="form-note">Maks. 5 MB / 300 baris. Kontrak, telepon, dan NIK harus berupa Text. Foto dilengkapi setelah impor.</p><div id="bulk-info" class="form-note"></div><div id="bulk-results"></div><div id="bulk-error" class="inline-error" hidden></div></div><footer><button class="btn" data-action="close-modal">Batal</button><div><button class="btn" data-action="bulk-errors" id="bulk-errors" hidden>Unduh error</button><button class="btn primary" data-action="bulk-confirm" id="bulk-confirm" disabled>Impor Debitur</button></div></footer>', true);
+}
+function bulkCsv(text) {
+  const first = text.split(/\r?\n/)[0], delimiter = first.split(';').length > first.split(',').length ? ';' : ',';
+  const rows = []; let row = [], value = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') { if (quoted && text[i + 1] === '"') { value += '"'; i++; } else quoted = !quoted; }
+    else if (char === delimiter && !quoted) { row.push(value); value = ''; }
+    else if ((char === '\r' || char === '\n') && !quoted) { if (char === '\r' && text[i + 1] === '\n') i++; row.push(value); rows.push(row); row = []; value = ''; }
+    else value += char;
+    if (rows.length > 301) throw new Error('Maksimal 300 baris per impor.');
+  }
+  if (quoted) throw new Error('Tanda kutip CSV tidak berpasangan.');
+  if (value || row.length) { row.push(value); rows.push(row); }
+  return rows;
+}
+function bulkValidate(raw, row, existing, seen) {
+  const errors = [], text = key => { const value = raw[key]; if (value != null && typeof value !== 'string' && typeof value !== 'number') { errors.push(key + ': jenis sel tidak didukung.'); return ''; } const result = String(value == null ? '' : value).trim(); if (result.length > 500) errors.push(key + ' maksimal 500 karakter.'); return result; };
+  const data = { id: '', contract: text('contract'), name: text('name'), regency: text('regency'), district: text('district'), village: text('village'), streetAddress: text('streetAddress'), phone: text('phone'), nik: text('nik'), brandType: text('brandType'), plate: text('plate').toUpperCase(), regencyId: '', districtId: '', occupation: '', emergency: '' };
+  ['contract', 'name', 'regency', 'district', 'village', 'streetAddress', 'phone'].forEach(key => { if (!data[key]) errors.push(BULK_HEADERS[BULK_KEYS.indexOf(key)] + ' wajib diisi.'); });
+  if (typeof raw.contract === 'number' || typeof raw.phone === 'number' || typeof raw.nik === 'number') errors.push('Kontrak, telepon, dan NIK harus berupa Text.');
+  if (data.contract.length > 100 || data.name.length > 150) errors.push('No. kontrak maks. 100 dan nama maks. 150 karakter.');
+  const contract = data.contract.toLowerCase();
+  if (existing.has(contract)) errors.push('No. kontrak sudah ada di database.');
+  if (seen.has(contract)) errors.push('No. kontrak duplikat di file.');
+  if (contract) seen.add(contract);
+  if (!/^[+0-9 ()-]{8,20}$/.test(data.phone) || (data.nik && !/^\d{16}$/.test(data.nik))) errors.push('Telepon / NIK tidak valid.');
+  const money = key => {
+    const original = raw[key];
+    let value = typeof original === 'number' ? original : String(original == null || original === '' ? '0' : original).replace(/^Rp\.?\s*/i, '').replace(/\s/g, '');
+    if (typeof value === 'string') {
+      if (/^\d{1,3}(\.\d{3})+(,00)?$/.test(value)) value = Number(value.replace(/\./g, '').replace(',00', ''));
+      else if (/^\d{1,3}(,\d{3})+(\.00)?$/.test(value)) value = Number(value.replace(/,/g, ''));
+      else if (/^\d+([.,]0{1,2})?$/.test(value)) value = Number(value.replace(',', '.'));
+      else value = NaN;
+    }
+    if (!Number.isSafeInteger(value) || value < 0 || value > 1e15) { errors.push(key + ' harus rupiah bulat positif.'); return 0; }
+    return value;
+  };
+  if (raw.installment == null || raw.installment === '') errors.push('Angsuran wajib diisi.');
+  data.installment = money('installment'); data.penalty = money('penalty'); data.total = data.installment + data.penalty;
+  if (raw.total != null && raw.total !== '' && money('total') !== data.total) errors.push('Total angsuran tidak sama dengan Angsuran + Denda.');
+  if (data.total > 1e15) errors.push('Total melebihi batas.');
+  let date = raw.dueDate instanceof Date && !isNaN(raw.dueDate.getTime()) ? raw.dueDate.toISOString().slice(0, 10) : String(raw.dueDate || '').trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(date)) { const parts = date.split('/'); date = parts[2] + '-' + parts[1] + '-' + parts[0]; }
+  if (!crmValidDate(date)) errors.push('Tanggal harus YYYY-MM-DD, DD/MM/YYYY, atau sel Date Excel.');
+  data.dueDate = date; data.address = [data.streetAddress, data.village, data.district, data.regency].join(', '); data.vehicle = [data.brandType, data.plate].filter(Boolean).join(' / ');
+  return { row, data, errors };
+}
+async function chooseBulkFile(input) {
+  const file = input.files && input.files[0]; input.value = ''; if (!file || !bulkState || bulkState.busy) return;
+  bulkState.busy = true; ARMS.locked = true; bulkState.rows = []; bulkState.batchId = crypto.randomUUID(); $('#bulk-error').hidden = true; $('#bulk-confirm').disabled = true; $('#bulk-info').textContent = 'Memeriksa ' + file.name + '...';
+  try {
+    if (!file.size || file.size > 5 * 1024 * 1024 || !/\.(csv|xlsx)$/i.test(file.name)) throw new Error('Gunakan .xlsx / .csv maksimal 5 MB.');
+    let rows;
+    if (/\.csv$/i.test(file.name)) rows = bulkCsv((await file.text()).replace(/^\uFEFF/, ''));
+    else {
+      const Excel = await loadExcelJs(), workbook = new Excel.Workbook(); await workbook.xlsx.load(await file.arrayBuffer());
+      const sheet = workbook.getWorksheet('Debitur') || workbook.worksheets[0];
+      if (!sheet || sheet.rowCount > 301 || sheet.columnCount > 60) throw new Error('Worksheet maksimal 300 baris data dan 60 kolom.');
+      rows = []; sheet.eachRow({ includeEmpty: true }, row => { const values = []; for (let c = 1; c <= sheet.columnCount; c++) { const cell = row.getCell(c); if (cell.type === Excel.ValueType.Formula) throw new Error('Sel ' + cell.address + ' berisi formula. Ubah ke nilai.'); values.push(cell.value && typeof cell.value === 'object' && 'richText' in cell.value ? cell.text : cell.value); } rows.push(values); });
+    }
+    const norm = text => String(text || '').toLowerCase().replace(/[^a-z0-9]/g, ''), aliases = Object.create(null);
+    BULK_HEADERS.forEach((h, i) => { aliases[norm(h)] = BULK_KEYS[i]; aliases[norm(BULK_KEYS[i])] = BULK_KEYS[i]; });
+    Object.assign(aliases, { nokontrak: 'contract', namadebitur: 'name', alamat: 'streetAddress', nomorhp: 'phone', nohp: 'phone', kontak: 'phone', merk: 'brandType', nopol: 'plate', nik: 'nik', totalangsuran: 'total' });
+    if (!rows.length) throw new Error('Spreadsheet kosong.');
+    const mapping = rows[0].map(v => aliases[norm(v)]), known = mapping.filter(Boolean);
+    if (new Set(known).size !== known.length) throw new Error('Ada header duplikat.');
+    ['contract', 'name', 'regency', 'district', 'village', 'streetAddress', 'dueDate', 'installment', 'phone'].forEach(key => { if (!mapping.includes(key)) throw new Error('Kolom ' + BULK_HEADERS[BULK_KEYS.indexOf(key)] + ' tidak ditemukan.'); });
+    const existing = new Set(ARMS.db.customers.map(c => String(c.contract || '').toLowerCase())), seen = new Set();
+    bulkState.rows = rows.slice(1).map((row, i) => ({ row, i })).filter(r => r.row.some(v => v !== null && v !== undefined && v !== '')).map(r => { const raw = {}; mapping.forEach((key, i) => { if (key) raw[key] = r.row[i]; }); return bulkValidate(raw, r.i + 2, existing, seen); });
+    if (!bulkState.rows.length || bulkState.rows.length > 300) throw new Error('Isi 1 sampai 300 baris debitur.');
+    const invalid = bulkState.rows.filter(r => r.errors.length);
+    $('#bulk-info').textContent = file.name + ' / ' + bulkState.rows.length + ' baris / ' + invalid.length + ' baris bermasalah';
+    $('#bulk-results').innerHTML = '<div class="bulk-validation ' + (invalid.length ? 'invalid' : 'valid') + '">' + (invalid.length ? 'Perbaiki seluruh baris sebelum impor. Tidak ada data yang disimpan.' : 'Semua baris valid dan siap diimpor.') + '</div><div class="table-scroll bulk-preview"><table><thead><tr><th>Baris</th><th>Kontrak / Nama</th><th>Total</th><th>Validasi</th></tr></thead><tbody>' + bulkState.rows.slice(0, 50).map(r => '<tr><td>' + r.row + '</td><td>' + escapeHTML(r.data.contract) + '<small>' + escapeHTML(r.data.name) + '</small></td><td>' + rupiah(r.data.total) + '</td><td><div class="bulk-row-error">' + escapeHTML(r.errors.join(' ') || 'Valid') + '</div></td></tr>').join('') + '</tbody></table></div>';
+    $('#bulk-errors').hidden = !invalid.length; $('#bulk-confirm').disabled = !!invalid.length;
+  } catch (error) { $('#bulk-error').textContent = error.message; $('#bulk-error').hidden = false; }
+  finally { bulkState.busy = false; ARMS.locked = false; }
+}
+async function bulkTemplate() {
+  if (ARMS.locked) return; ARMS.locked = true;
+  try {
+    const Excel = await loadExcelJs(), workbook = new Excel.Workbook(), sheet = workbook.addWorksheet('Debitur'); sheet.addRow(BULK_HEADERS);
+    sheet.addRow(['CTR-CONTOH-001', 'Nama Debitur Contoh', 'Kota Jakarta Selatan', 'Tebet', 'Tebet Barat', 'Jl. Contoh No. 1 RT 001 RW 002, 12810', '2026-01-15', 1000000, 50000, 1050000, '081234567890', 'Honda / Vario 160', 'B 1234 ABC', '']);
+    sheet.columns.forEach((c, i) => { c.width = i === 5 ? 48 : 26; if (![7, 8, 9].includes(i)) c.numFmt = '@'; }); sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }; sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6750A4' } };
+    const guide = workbook.addWorksheet('Panduan'); ['Hapus baris contoh.', 'Maks. 300 baris / 5 MB. Impor menambah, tidak menimpa data.', 'Kontrak, telepon, dan NIK harus Text.', 'Tanggal YYYY-MM-DD, DD/MM/YYYY, atau Date Excel.', 'Nominal rupiah bulat. Formula tidak diterima.', 'Foto diunggah setelah impor.'].forEach(text => guide.addRow([text])); guide.getColumn(1).width = 90;
+    const buffer = await workbook.xlsx.writeBuffer(), url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })), a = document.createElement('a'); a.href = url; a.download = 'ARMS-Template-Bulk-Debitur.xlsx'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { toast(error.message, true); } finally { ARMS.locked = false; }
+}
+async function confirmBulkImport() {
+  if (!bulkState || bulkState.busy || !bulkState.rows.length || bulkState.rows.some(r => r.errors.length)) return;
+  bulkState.busy = true; ARMS.locked = true;
+  try { const records = await rpc('importCustomers', bulkState.rows.map(r => r.data), bulkState.batchId); ARMS.db.customers = records.concat(ARMS.db.customers.filter(c => !records.some(r => r.id === c.id))); renderAll(); $('#dialog').close(); toast(records.length + ' debitur berhasil diimpor.'); bulkState = null; }
+  catch (error) { $('#bulk-error').textContent = error.message; $('#bulk-error').hidden = false; }
+  finally { if (bulkState) bulkState.busy = false; ARMS.locked = false; }
+}
+</script>

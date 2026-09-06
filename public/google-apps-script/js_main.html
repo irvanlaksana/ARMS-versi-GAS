@@ -1,0 +1,619 @@
+<script>
+'use strict';
+const ARMS = {
+  db: null, module: 'dashboard', period: new Date().toISOString().slice(0, 7),
+  query: {}, filters: {}, pages: {}, form: null, deleting: null, letter: null, requests: 0, locked: false
+};
+const TITLES = {
+  dashboard: ['Dashboard', 'Pantau piutang, penagihan, dan kinerja tim Anda.', 'Tambah Kasus'],
+  customers: ['Debitur', 'Kelola identitas, kontak, dan rincian keuangan debitur.', 'Tambah Debitur'],
+  clients: ['Clients & Creditors Master', 'Master data klien multifinance, perbankan, fintech, dan perorangan (pemberi kuasa).', 'Register Client'],
+  cases: ['Kasus Piutang', 'Kelola portofolio piutang dari penugasan hingga penyelesaian.', 'New Recovery Case'],
+  collections: ['Collections & Communications Log', 'Catat interaksi, hasil penagihan, janji bayar, dan langkah berikutnya.', 'Catat Aktivitas'],
+  letters: ['Surat Tugas & Kuasa', 'Dokumen yang rapi. Penugasan yang jelas.', 'Buat Surat'],
+  payments: ['Pembayaran', 'Catat penerimaan dan hitung pembagian fee secara otomatis.', 'Catat Pembayaran'],
+  executions: ['Eksekusi / Tarik Unit', 'Kelola penugasan, serah terima unit, dan persentase fee.', 'Tambah Tarik Unit'],
+  accounts: ['Rekening', 'Pemasukan fee, pengeluaran, dan saldo rekening agensi.', 'Catat Transaksi'],
+  reports: ['Laporan Keuangan', 'Gambaran utuh penerimaan dan kinerja keuangan Anda.', 'Ekspor Laporan'],
+  personnel: ['Tim & Mitra', 'Kelola karyawan dan mitra penagihan Anda.', 'Tambah Personel'],
+  settings: ['Pengaturan', 'Identitas agensi, database, dan akses pengguna.', '']
+};
+const ENTITIES = { clients: 'Client', collections: 'CollectionLog', customers: 'Customer', cases: 'Case', letters: 'SK', payments: 'Payment', personnel: 'Personnel', users: 'User', executions: 'Execution', accounts: 'Account', transactions: 'Transaction' };
+const ENTITY_LABELS = { clients: 'Client', collections: 'Log Komunikasi', customers: 'Debitur', cases: 'Kasus', letters: 'Surat', payments: 'Pembayaran', personnel: 'Personel', users: 'Pengguna', executions: 'Tarik Unit', accounts: 'Rekening', transactions: 'Transaksi' };
+const BUCKETS = ['1-30 hari', '31-60 hari', '61-90 hari', '>90 hari'];
+const COLORS = ['#a18aed', '#7297d6', '#d8b271', '#d588a4'];
+const ICONS = {
+  business: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h1m4 0h1M9 11h1m4 0h1M9 21v-6h6v6"/>',
+  chat: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/><path d="M8 10h8m-8 4h5"/>',
+  car: '<path d="M5 17H3v-6l2-6h14l2 6v6h-2M5 17v3m14-3v3M3 11h18M7 14h.01M17 14h.01M5 17h14"/>',
+  dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m18 0v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  case: '<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0m-9 0v3"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/>',
+  wallet: '<path d="M20 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-3M3 6h15a2 2 0 0 1 2 2v8h-5a3 3 0 0 1 0-6h5m-4 3h.01"/>',
+  chart: '<path d="M3 3v18h18M7 14l5-5 4 3 5-7"/>',
+  settings: '<path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/>',
+  database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/>',
+  search: '<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1Z"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3m.1 4h.01"/>',
+  refresh: '<path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-2L20 8M4 16l2.3 3A7 7 0 0 0 17.9 17"/>',
+  menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
+  print: '<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2ZM7 3v6h10V3M7 21v-8h10v8"/>',
+  download: '<path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
+  arrow: '<path d="M7 17 17 7M7 7h10v10"/>'
+};
+const $ = selector => document.querySelector(selector);
+const $$ = selector => Array.from(document.querySelectorAll(selector));
+const formControl = name => $('#entity-form [name="' + name + '"]');
+let fieldSequence = 0;
+const escapeHTML = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const n = value => Number(value || 0);
+const rupiah = value => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n(value));
+const compact = value => n(value) >= 1e9 ? 'Rp ' + (n(value) / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 }) + ' M' : n(value) >= 1e6 ? 'Rp ' + (n(value) / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 2 }) + ' Jt' : rupiah(value);
+const dateLabel = value => value && !isNaN(Date.parse(value)) ? new Date(value).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-';
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const icon = name => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || ICONS.file) + '</svg>';
+const actionData = (action, entity, id) => ' data-action="' + escapeHTML(action) + '" data-entity="' + escapeHTML(entity || '') + '" data-id="' + escapeHTML(id || '') + '"';
+const recordById = (entity, id) => ARMS.db && ARMS.db[entity].find(record => record.id === id);
+const customerFor = c => c ? recordById('customers', c.customerId) : null;
+const paidFor = (id, exclude) => ARMS.db.payments.filter(p => p.caseId === id && p.id !== exclude).reduce((sum, p) => sum + n(p.amount), 0);
+const assigneeFor = id => { const c = recordById('cases', id); const assigned = c && recordById('personnel', c.personnelId); if (assigned) return assigned; const letter = ARMS.db.letters.filter(l => l.caseId === id && l.status === 'Aktif').slice(-1)[0]; return letter ? recordById('personnel', letter.personnelId) : null; };
+const badge = status => '<span class="badge ' + (['Aktif', 'Berhasil', 'Administrator', 'Pemasukan'].includes(status) ? 'green' : ['Dalam Proses', 'Draft', 'Supervisor', 'Sebagian', 'Pembayaran sebagian', 'Tarik unit', 'Janji bayar', 'Belum dicatat'].includes(status) ? 'amber' : ['Dicabut', 'Dibatalkan', 'Pengeluaran'].includes(status) ? 'red' : '') + '">' + escapeHTML(status) + '</span>';
+const avatar = name => '<span class="avatar">' + escapeHTML((name || '-').split(' ').slice(0, 2).map(word => word[0]).join('').toUpperCase()) + '</span>';
+function fillIcons() { $$('[data-icon]').forEach(element => { element.innerHTML = icon(element.dataset.icon); }); }
+
+// Both GAS callbacks are wrapped in a Promise. The overlay blocks duplicate actions.
+function rpc(method, ...args) {
+  ARMS.requests++;
+  if (ARMS.requests === 1) {
+    $$('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)').forEach(element => { element.dataset.rpcDisabled = 'true'; element.disabled = true; });
+    $$('.dialog .btn.primary').forEach(button => button.classList.add('request-pending'));
+  }
+  $('#network-loader').hidden = false;
+  document.body.setAttribute('aria-busy', 'true');
+  $('#network-message').textContent = method === 'getBootstrap' ? 'Memuat data workspace...' : 'Menyimpan perubahan...';
+  return new Promise((resolve, reject) => {
+    if (!window.google || !google.script || !google.script.run) { reject(new Error('Buka aplikasi melalui URL deployment Google Apps Script.')); return; }
+    google.script.run.withSuccessHandler(result => {
+      if (result && result.status === 'success') resolve(result.data);
+      else reject(new Error(result && result.message ? result.message : 'Respons server tidak valid.'));
+    }).withFailureHandler(error => reject(new Error(error.message || 'Tidak dapat menghubungi server.')))[method](...args);
+  }).finally(() => {
+    ARMS.requests = Math.max(0, ARMS.requests - 1);
+    $('#network-loader').hidden = ARMS.requests === 0;
+    if (!ARMS.requests) {
+      $$('[data-rpc-disabled]').forEach(element => { element.disabled = false; delete element.dataset.rpcDisabled; });
+      $$('.request-pending').forEach(button => button.classList.remove('request-pending'));
+    }
+    document.body.setAttribute('aria-busy', ARMS.requests ? 'true' : 'false');
+  });
+}
+async function reloadData() {
+  ARMS.db = await rpc('getBootstrap');
+  ['executions', 'accounts', 'transactions', 'clients', 'collections'].forEach(key => { if (!Array.isArray(ARMS.db[key])) ARMS.db[key] = []; });
+  ARMS.db.collections.forEach(log => { log.hasPayment = log.hasPayment === true || String(log.hasPayment).toLowerCase() === 'true'; });
+  renderAll();
+  $('#boot-error').hidden = true;
+  $('#connection-status').textContent = 'Database terhubung';
+}
+function toast(message, error) {
+  const element = document.createElement('div'); element.className = 'toast' + (error ? ' error' : ''); element.textContent = message;
+  $('#toast-region').appendChild(element); setTimeout(() => element.remove(), 5500);
+}
+function navigate(module) {
+  if (!TITLES[module]) return;
+  ARMS.module = module;
+  $$('.module').forEach(section => { section.hidden = section.id !== 'module-' + module; });
+  $$('.sidebar nav [data-nav]').forEach(button => { button.classList.toggle('active', button.dataset.nav === module); button.setAttribute('aria-current', button.dataset.nav === module ? 'page' : 'false'); });
+  const [title, subtitle, action] = TITLES[module];
+  $('#page-title').textContent = title; $('#page-subtitle').textContent = subtitle; $('#breadcrumb-current').textContent = module === 'dashboard' ? 'Overview' : title;
+  $('#primary-action').hidden = !action || (module === 'letters' && ARMS.letter);
+  $('#primary-action').innerHTML = icon(module === 'reports' ? 'download' : 'plus') + '<span>' + escapeHTML(action) + '</span>';
+  $('#period-control').hidden = !['dashboard', 'reports'].includes(module);
+  $('#bulk-import-button').hidden = module !== 'customers';
+  $('#sidebar').classList.remove('open'); $('#mobile-scrim').hidden = true;
+  $('#global-results').hidden = true;
+}
+function renderAll() {
+  if (!ARMS.db) return;
+  $('#profile-name').textContent = ARMS.db.settings.signer;
+  $('#profile-role').textContent = ARMS.db.currentUser.role;
+  $('#workspace-name').textContent = ARMS.db.settings.agency;
+  $('#case-count').textContent = ARMS.db.cases.filter(c => c.status !== 'Selesai').length;
+  renderDashboard();
+  renderReminderSection();
+  ['customers', 'cases', 'payments', 'personnel'].forEach(entity => renderEntity(entity));
+  renderLetters(); renderClientsModule(); renderCollectionsModule(); renderExecutions(); renderAccountsModule(); renderReports(); renderSettings(); addWorkspaceControls(); updateBranding(); navigate(ARMS.module); fillIcons();
+}
+
+function renderDashboard() {
+  const db = ARMS.db, active = db.cases.filter(c => c.status !== 'Selesai');
+  const payments = db.payments.filter(p => String(p.date).startsWith(ARMS.period));
+  const collected = payments.reduce((sum, p) => sum + n(p.amount), 0), revenue = payments.reduce((sum, p) => sum + n(p.companyRevenue), 0);
+  const outstanding = active.reduce((sum, c) => sum + Math.max(0, n(c.principal) - paidFor(c.id)), 0);
+  const stats = [
+    ['Total Piutang', compact(outstanding), active.length + ' kasus berjalan', 'wallet', 'cases'],
+    ['Kasus Aktif', active.length, db.cases.filter(c => c.status === 'Dalam Proses').length + ' dalam proses penagihan', 'case', 'cases'],
+    ['Pembayaran Diterima', compact(collected), payments.length + ' transaksi pada periode ini', 'wallet', 'payments'],
+    ['Pendapatan Perusahaan', compact(revenue), 'Termasuk pembagian biaya tambahan', 'chart', 'reports']
+  ];
+  const circumference = Math.PI * 130; let offset = 0;
+  const segments = BUCKETS.map((bucket, i) => {
+    const count = active.filter(c => c.bucket === bucket).length;
+    const length = active.length ? count / active.length * circumference : 0, start = offset; offset += length;
+    return '<circle cx="92" cy="92" r="65" fill="none" stroke="' + COLORS[i] + '" stroke-width="20" stroke-dasharray="' + Math.max(0, length - 5) + ' ' + (circumference - Math.max(0, length - 5)) + '" stroke-dashoffset="' + (-start) + '" transform="rotate(-90 92 92)"><title>' + escapeHTML(bucket) + ': ' + count + '</title></circle>';
+  }).join('');
+  $('#module-dashboard').innerHTML = '<div class="stats">' + stats.map(s => '<button class="panel stat" data-nav="' + s[4] + '"><span class="stat-head">' + escapeHTML(s[0]) + icon(s[3]) + '</span><strong>' + escapeHTML(s[1]) + '</strong><small>' + escapeHTML(s[2]) + '</small></button>').join('') + '</div><div class="charts">' + chartHTML() + '<section class="panel dpd-panel"><div class="panel-head"><div><h2>Distribusi DPD</h2><p>Umur tunggakan kasus aktif.</p></div>' + icon('chart') + '</div><div class="donut"><svg viewBox="0 0 184 184" role="img" aria-label="Distribusi umur tunggakan"><circle cx="92" cy="92" r="65" fill="none" stroke="#38303e" stroke-width="20"/>' + segments + '<text x="92" y="91" text-anchor="middle" fill="#eee2f4" font-size="30" font-weight="500">' + active.length + '</text><text x="92" y="112" text-anchor="middle" fill="#a38db2" font-size="10">Kasus aktif</text></svg></div><div class="dpd-legend">' + BUCKETS.map((bucket, i) => '<button data-action="bucket" data-bucket="' + escapeHTML(bucket) + '"><span><i style="background:' + COLORS[i] + '"></i>' + escapeHTML(bucket) + '</span><strong>' + active.filter(c => c.bucket === bucket).length + '</strong></button>').join('') + '</div></section></div><section class="panel"><div class="panel-head"><div><h2>Kasus terbaru</h2><p>Kelola dan pantau perkembangan kasus piutang Anda.</p></div><button class="text-button" data-nav="cases">Lihat semua kasus ' + icon('arrow') + '</button></div><div id="recent-container">' + tableHTML('cases', 'recent') + '</div></section><footer class="page-footer"><span>ARMS / Lebih teratur. Lebih terkendali.</span><span>Terhubung langsung ke Google Sheets</span></footer>';
+}
+function chartHTML() {
+  const points = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(ARMS.period + '-01T12:00:00'); date.setMonth(date.getMonth() - 5 + index);
+    const key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+    return { label: date.toLocaleDateString('id-ID', { month: 'short' }), total: ARMS.db.payments.filter(p => String(p.date).startsWith(key)).reduce((sum, p) => sum + n(p.amount), 0) };
+  });
+  const max = Math.max(100000000, Math.ceil(Math.max(...points.map(p => p.total)) / 100000000) * 100000000);
+  const coords = points.map((p, i) => ({ x: 63 + i * 123, y: 171 - p.total / max * 145 }));
+  const path = coords.map((p, i) => !i ? 'M' + p.x + ',' + p.y : 'C' + ((coords[i - 1].x + p.x) / 2) + ',' + coords[i - 1].y + ' ' + ((coords[i - 1].x + p.x) / 2) + ',' + p.y + ' ' + p.x + ',' + p.y).join(' ');
+  return '<section class="panel chart-panel"><div class="panel-head"><div><h2>Tren pembayaran</h2><p>Performa penerimaan pembayaran dari waktu ke waktu.</p></div><span class="badge">6 bulan terakhir</span></div><p class="chart-legend">Pembayaran diterima</p><svg class="line-chart" viewBox="0 0 720 215" role="img" aria-label="Tren pembayaran 6 bulan terakhir">' + [0, 1, 2, 3, 4].map(i => '<line x1="63" x2="678" y1="' + (26 + i * 36.25) + '" y2="' + (26 + i * 36.25) + '" stroke="#403444" stroke-dasharray="3 5"/><text x="49" y="' + (30 + i * 36.25) + '" text-anchor="end" fill="#9781a7" font-size="10">' + Math.round(max * (4 - i) / 4 / 1e6) + ' Jt</text>').join('') + '<path d="' + path + ' L678,171 L63,171Z" fill="#9772c6" opacity=".10"/><path class="chart-path" d="' + path + '" stroke="#b398ed" stroke-width="2.7" fill="none"/>' + points.map((p, i) => '<g><circle cx="' + coords[i].x + '" cy="' + coords[i].y + '" r="4" fill="#c0a1ee" stroke="#241c2c" stroke-width="2"/><text x="' + coords[i].x + '" y="199" text-anchor="middle" fill="#a38ab3" font-size="11">' + escapeHTML(p.label) + '</text><title>' + escapeHTML(p.label + ': ' + rupiah(p.total)) + '</title></g>').join('') + '</svg></section>';
+}
+
+function filteredRows(entity, scope) {
+  const query = (ARMS.query[scope] || '').toLowerCase(), filters = ARMS.filters[scope] || {};
+  return ARMS.db[entity].slice().reverse().filter(record => {
+    const c = entity === 'cases' ? record : record.caseId ? recordById('cases', record.caseId) : null;
+    const customer = customerFor(c);
+    const searchable = Object.values(record).filter(value => typeof value !== 'object').join(' ') + ' ' + (customer ? customer.name + ' ' + customer.nik : '') + ' ' + (c ? c.number + ' ' + c.client : '');
+    const collectionMatch = entity !== 'collections' || ((!filters.caseId || record.caseId === filters.caseId) && (!filters.activity || record.activity === filters.activity) && (!filters.outcome || record.outcome === filters.outcome) && (ARMS.collectionTab !== 'next' || (record.nextActionDate && record.nextActionDate <= crmToday() && c && c.status !== 'Selesai')) && (ARMS.collectionTab !== 'payment' || (record.hasPayment && !crmReceipt(record.id))));
+    return collectionMatch && searchable.toLowerCase().includes(query) && (!filters.industry || record.industry === filters.industry) && (!filters.status || record.status === filters.status || record.type === filters.status || (entity === 'customers' && customerProcessClient(record.id).label === filters.status)) && (!filters.bucket || record.bucket === filters.bucket) && (!filters.clientType || record.clientType === filters.clientType) && (!filters.accountId || record.accountId === filters.accountId) && (!filters.month || String(record.date).startsWith(filters.month));
+  }).sort((a, b) => entity === 'collections' ? b.activityDate.localeCompare(a.activityDate) || b.createdAt.localeCompare(a.createdAt) : 0);
+}
+function filterSelect(scope, key, label, options) {
+  const value = (ARMS.filters[scope] || {})[key] || '';
+  return '<select aria-label="' + escapeHTML(label) + '" data-filter-scope="' + scope + '" data-filter-key="' + key + '"><option value="">' + escapeHTML(label) + '</option>' + options.map(option => '<option value="' + escapeHTML(option) + '"' + (option === value ? ' selected' : '') + '>' + escapeHTML(option) + '</option>').join('') + '</select>';
+}
+function tableHTML(entity, scope) {
+  scope = scope || entity;
+  const rows = filteredRows(entity, scope), perPage = scope === 'recent' ? 5 : 10;
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const page = Math.min(ARMS.pages[scope] || 1, pages); ARMS.pages[scope] = page;
+  const visible = rows.slice((page - 1) * perPage, page * perPage);
+  const headers = {
+    clients: ['Client / Creditor', 'Industri', 'Contact Person', 'Kontak', 'Domisili / Kantor', 'Kasus'],
+    collections: ['Aktivitas / Tanggal', 'Berkas / Debitur', 'Petugas / PIC', 'Outcome', 'Next Action', 'Pembayaran'],
+    customers: ['Debitur', 'No. Kontrak', 'Nomor Handphone', 'Jatuh tempo', 'Proses debitur', 'Total angsuran', 'Kendaraan'],
+    cases: ['Kasus / Debitur', 'Klien', 'Outstanding', 'DPD', 'Petugas', 'Status'],
+    letters: ['Nomor surat', 'Jenis', 'Kasus / Debitur', 'Petugas', 'Tanggal terbit', 'Status', 'PDF Surat'],
+    payments: ['Kuitansi / Tanggal', 'Kasus / Debitur', 'Pembayaran', 'Gross fee', 'Pendapatan', 'Komisi mitra', 'Penyelesaian kasus'],
+    executions: ['Penarikan / Debitur', 'Unit / Klien', 'Tanggal / Petugas', 'Fee', 'Hak perusahaan', 'Status'],
+    accounts: ['Nama rekening', 'Bank', 'Nomor rekening', 'Atas nama', 'Saldo'],
+    transactions: ['Transaksi / Tanggal', 'Rekening', 'Keterangan / Klien', 'Jenis', 'Nominal', 'Referensi'],
+    personnel: ['Personel', 'Posisi / Jabatan', 'Rekening bank', 'KTP', 'Penugasan aktif'], users: ['Email Google', 'Peran', 'Status']
+  }[entity];
+  let filters = entity === 'cases' ? filterSelect(scope, 'status', 'Semua status', ['Aktif', 'Dalam Proses', 'Selesai', 'Ditunda']) + (scope !== 'recent' ? filterSelect(scope, 'bucket', 'Semua DPD', BUCKETS) + filterSelect(scope, 'clientType', 'Semua klien', CLIENT_INDUSTRIES) : '') : entity === 'letters' ? filterSelect(scope, 'status', 'Semua status', ['Aktif', 'Draft', 'Selesai', 'Dicabut']) : entity === 'personnel' ? filterSelect(scope, 'status', 'Semua tipe', ['Karyawan', 'Mitra DC']) : entity === 'customers' ? filterSelect(scope, 'status', 'Semua proses', PROCESS_STATUSES) : entity === 'executions' ? filterSelect(scope, 'status', 'Semua status', EXECUTION_STATUSES) : entity === 'clients' ? filterSelect(scope, 'industry', 'Semua industri', CLIENT_INDUSTRIES) : entity === 'collections' ? filterSelect(scope, 'activity', 'Semua kanal', COLLECTION_CHANNELS) + filterSelect(scope, 'outcome', 'Semua outcome', COLLECTION_OUTCOMES) : '';
+  if (entity === 'transactions') filters = filterSelect(scope, 'status', 'Semua mutasi', ['Pemasukan', 'Pengeluaran']) + '<select aria-label="Filter rekening" data-filter-scope="transactions" data-filter-key="accountId"><option value="">Semua rekening</option>' + ARMS.db.accounts.map(a => '<option value="' + escapeHTML(a.id) + '"' + ((ARMS.filters.transactions || {}).accountId === a.id ? ' selected' : '') + '>' + escapeHTML(a.name) + '</option>').join('') + '</select><input type="month" aria-label="Bulan mutasi" data-filter-scope="transactions" data-filter-key="month" value="' + escapeHTML((ARMS.filters.transactions || {}).month || '') + '">';
+  return '<div class="table-toolbar"><span class="table-title">Semua ' + escapeHTML(ENTITY_LABELS[entity].toLowerCase()) + '<span>' + rows.length + '</span></span><div class="table-tools"><input id="search-' + scope + '" data-query="' + scope + '" value="' + escapeHTML(ARMS.query[scope] || '') + '" placeholder="Cari ' + escapeHTML(ENTITY_LABELS[entity].toLowerCase()) + '..." aria-label="Cari ' + escapeHTML(ENTITY_LABELS[entity]) + '">' + filters + '<button class="btn small" data-action="export" data-entity="' + entity + '" data-scope="' + scope + '" aria-label="Ekspor CSV">' + icon('download') + '</button></div></div><div class="table-scroll"><table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '<th></th></tr></thead><tbody>' + visible.map(record => rowHTML(entity, record)).join('') + '</tbody></table></div>' + (!rows.length ? '<div class="empty">' + (ARMS.query[scope] ? 'Tidak ada hasil ditemukan.' : 'Belum ada ' + escapeHTML(ENTITY_LABELS[entity].toLowerCase()) + '.') + '<p>' + (ARMS.query[scope] ? 'Coba kata kunci atau filter yang berbeda.' : 'Gunakan tombol tambah untuk mulai mengelola data.') + '</p></div>' : '') + '<div class="pagination"><span>Menampilkan ' + (rows.length ? (page - 1) * perPage + 1 : 0) + '-' + Math.min(page * perPage, rows.length) + ' dari ' + rows.length + ' data</span><div><button class="btn" data-action="page" data-scope="' + scope + '" data-page="' + (page - 1) + '"' + (page === 1 ? ' disabled' : '') + ' aria-label="Halaman sebelumnya">&larr;</button><span>' + page + ' / ' + pages + '</span><button class="btn" data-action="page" data-scope="' + scope + '" data-page="' + (page + 1) + '"' + (page === pages ? ' disabled' : '') + ' aria-label="Halaman berikutnya">&rarr;</button></div></div>';
+}
+function rowHTML(entity, r) {
+  let cells = [];
+  const detailButton = title => '<button class="row-link"' + actionData('detail', entity, r.id) + '>' + escapeHTML(title) + '</button>';
+  if (entity === 'customers') cells = [detailButton(r.name) + '<small>' + escapeHTML(r.regency || r.id) + '</small>', escapeHTML(r.contract || (ARMS.db.cases.find(c => c.customerId === r.id) || {}).contract || '-'), escapeHTML(r.phone), escapeHTML(dateLabel(r.dueDate)), processHTML(r.id), '<strong class="money">' + rupiah(r.total) + '</strong>', escapeHTML(r.brandType || r.vehicle || '-') + (r.plate ? '<small>' + escapeHTML(r.plate) + '</small>' : '')];
+  if (entity === 'cases') {
+    const customer = customerFor(r), person = assigneeFor(r.id);
+    cells = [detailButton(r.number) + '<small>' + escapeHTML(customer ? customer.name : '-') + '</small>', escapeHTML(r.client), '<span class="money">' + rupiah(r.principal) + '</span>', '<span class="badge ' + (n(r.overdue) > 90 ? 'red' : n(r.overdue) > 30 ? 'amber' : 'green') + '">' + n(r.overdue) + ' hari</span>', person ? '<span class="person-cell">' + avatar(person.name) + escapeHTML(person.name) + '</span>' : '<small>Belum ditugaskan</small>', badge(r.status)];
+  }
+  if (entity === 'letters') {
+    const c = recordById('cases', r.caseId), customer = customerFor(c), person = recordById('personnel', r.personnelId);
+    cells = ['<button class="row-link"' + actionData('letter', 'letters', r.id) + '>' + escapeHTML(r.number) + '</button>', c && c.clientType === 'PERORANGAN' ? 'Surat Kuasa' : 'Surat Tugas', escapeHTML(c ? c.number : '-') + '<small>' + escapeHTML(customer ? customer.name : '-') + '</small>', escapeHTML(person ? person.name : '-'), escapeHTML(dateLabel(r.issuedAt)), badge(r.status), r.pdfUrl ? '<button class="text-button" data-action="download-letter-pdf" data-id="' + escapeHTML(r.id) + '">' + icon('download') + 'Unduh PDF</button>' : '<button class="text-button"' + actionData('letter', 'letters', r.id) + '>' + icon('plus') + 'Upload PDF</button>'];
+  }
+  if (entity === 'payments') {
+    const c = recordById('cases', r.caseId), customer = customerFor(c);
+    cells = [detailButton(r.number) + '<small>' + escapeHTML(dateLabel(r.date)) + '</small>', escapeHTML(c ? c.number : '-') + '<small>' + escapeHTML(customer ? customer.name : '-') + '</small>', '<span class="money">' + rupiah(r.amount) + '</span>', rupiah(r.grossFee), '<span class="green-text">' + rupiah(r.companyRevenue) + '</span>', rupiah(r.partnerCommission), badge(caseSuccessfulClient(c) ? 'Berhasil' : 'Sebagian')];
+  }
+  if (entity === 'personnel') cells = [detailButton(r.name) + '<small>' + escapeHTML(r.id) + '</small>', escapeHTML(r.position || 'Belum dilengkapi') + '<small>' + (r.type === 'Mitra DC' ? 'Mitra' : 'Karyawan') + '</small>', escapeHTML(r.bank), '<div class="personnel-document-actions">' + (r.ktpPhoto ? '<button class="text-button" data-action="personnel-document" data-id="' + escapeHTML(r.id) + '">Unduh KTP</button>' : '') + '<button class="text-button"' + actionData('edit', 'personnel', r.id) + '>' + (r.ktpPhoto ? 'Ganti KTP' : 'Upload KTP') + '</button></div>', ARMS.db.letters.filter(l => l.personnelId === r.id && l.status === 'Aktif').length + ' surat'];
+  if (entity === 'users') cells = [detailButton(r.username), badge(r.role), '<span class="green-text">Akses diizinkan</span>'];
+  if (FINANCE_ENTITIES.includes(entity)) cells = financeRowCells(entity, r);
+  if (entity === 'clients' || entity === 'collections') cells = crmRowCells(entity, r);
+  return '<tr>' + cells.map(cell => '<td>' + cell + '</td>').join('') + '<td><button class="icon-button" aria-label="Detail dan tindakan"' + actionData('detail', entity, r.id) + '>' + icon('more') + '</button></td></tr>';
+}
+function renderEntity(entity, scope) {
+  if (entity === 'clients') { renderClientsModule(); return; }
+  if (entity === 'collections') { renderCollectionsModule(); return; }
+  if (entity === 'executions') { renderExecutions(); return; }
+  if (entity === 'accounts' || entity === 'transactions' || entity === 'fees') { renderAccountsModule(); return; }
+  scope = scope || entity;
+  const container = scope === 'recent' ? $('#recent-container') : entity === 'users' ? $('#users-container') : entity === 'letters' ? $('#letters-container') : $('#module-' + entity);
+  if (container) container.innerHTML = scope === 'recent' || entity === 'users' || entity === 'letters' ? tableHTML(entity, scope) : '<section class="panel">' + tableHTML(entity, scope) + '</section>';
+}
+function rerenderTable(scope) {
+  const focused = document.activeElement, id = focused && focused.id;
+  const caret = focused && 'selectionStart' in focused ? focused.selectionStart : null;
+  renderEntity(scope === 'recent' ? 'cases' : scope, scope);
+  const replacement = id && document.getElementById(id);
+  if (replacement) { replacement.focus(); if (caret !== null && replacement.setSelectionRange) replacement.setSelectionRange(caret, caret); }
+}
+
+function field(label, name, value, options) {
+  options = options || {};
+  const common = ' name="' + escapeHTML(name) + '" id="field-' + escapeHTML(name) + '-' + (++fieldSequence) + '"' + (options.required ? ' required' : '') + (options.disabled ? ' disabled' : '');
+  let control;
+  if (options.options) control = '<select' + common + '>' + options.options.map(o => { const option = typeof o === 'string' ? { value: o, label: o } : o; return '<option value="' + escapeHTML(option.value) + '"' + (String(option.value) === String(value || '') ? ' selected' : '') + '>' + escapeHTML(option.label) + '</option>'; }).join('') + '</select>';
+  else if (options.textarea) control = '<textarea' + common + ' rows="2">' + escapeHTML(value || '') + '</textarea>';
+  else control = '<input' + common + ' type="' + (options.type || 'text') + '" value="' + escapeHTML(value == null ? '' : value) + '"' + (options.type === 'number' ? ' min="' + (options.min || 0) + '" step="' + (options.max === 100 ? '0.01' : '1') + '"' + (options.max != null ? ' max="' + options.max + '"' : '') : '') + (options.pattern ? ' pattern="' + escapeHTML(options.pattern) + '"' : '') + (options.maxLength ? ' maxlength="' + options.maxLength + '"' : '') + ' placeholder="' + escapeHTML(options.placeholder || '') + '">';
+  return '<label class="field ' + (options.full ? 'span-2' : '') + '"><span>' + escapeHTML(label) + (options.required ? ' *' : '') + '</span>' + control + (options.hint ? '<small>' + escapeHTML(options.hint) + '</small>' : '') + '</label>';
+}
+const customerOptions = () => [{ value: '', label: 'Pilih debitur dari database' }].concat(ARMS.db.customers.map(c => ({ value: c.id, label: c.name + ' - ' + (c.contract || c.id) })));
+const caseOptions = () => [{ value: '', label: 'Pilih kasus piutang' }].concat(ARMS.db.cases.filter(c => !ARMS.form || ARMS.form.entity !== 'payments' || (((!caseSuccessfulClient(c) && n(c.principal) - paidFor(c.id) > 0) || (ARMS.form.id && ARMS.form.data.caseId === c.id)) && (!ARMS.form.data.collectionLogId || c.id === (recordById('collections', ARMS.form.data.collectionLogId) || {}).caseId))).map(c => ({ value: c.id, label: c.number + ' - ' + ((customerFor(c) || {}).name || '') })));
+const personnelOptions = () => [{ value: '', label: 'Pilih petugas' }].concat(ARMS.db.personnel.map(p => ({ value: p.id, label: p.name })));
+function openDialog(title, subtitle, html, wide) {
+  $('#dialog-title').textContent = title; $('#dialog-subtitle').textContent = subtitle || '';
+  $('#dialog').classList.remove('customer-dialog', 'client-steps-dialog');
+  $('#dialog-content').innerHTML = html; $('#dialog').classList.toggle('wide', !!wide);
+  if (!$('#dialog').open) $('#dialog').showModal();
+  fillIcons();
+}
+function closeDialog() { if (ARMS.locked) return; $('#dialog').close(); ARMS.form = null; ARMS.deleting = null; }
+function formFooter(label) { return '<footer><small>Data disimpan ke Google Sheets</small><div><button type="button" class="btn" data-action="close-modal">Batal</button><button type="submit" class="btn primary">' + icon('save') + escapeHTML(label || 'Simpan') + '</button></div></footer>'; }
+function openForm(entity, id, defaults) {
+  if (!ARMS.db || !ENTITIES[entity]) return;
+  if (['accounts', 'transactions'].includes(entity) && ARMS.db.currentUser.role === 'Collector') return toast('Mutasi rekening dikelola Administrator atau Supervisor.', true);
+  const existing = id ? recordById(entity, id) : null;
+  if (id && !existing) return toast('Data tidak ditemukan. Muat ulang workspace.', true);
+  const data = Object.assign({}, existing || {}, defaults || {});
+  if (entity === 'payments' && !id && data.collectionLogId && crmReceipt(data.collectionLogId)) { openDetail('payments', crmReceipt(data.collectionLogId).id); return; }
+  if (entity === 'payments' && !id && data.caseId && caseSuccessfulClient(recordById('cases', data.caseId))) return toast('Kasus sudah berhasil / selesai. Pilih kasus aktif lainnya.', true);
+  ARMS.form = { entity: entity, id: id || '', data: data };
+  let html = '';
+  if (entity === 'customers') html = customerFieldsHTML(data);
+  if (entity === 'clients') html = clientFieldsHTML(data);
+  if (entity === 'collections') html = collectionFieldsHTML(data);
+  if (FINANCE_ENTITIES.includes(entity)) html = financeFieldsHTML(entity, data);
+  if (entity === 'cases') html = recoveryFieldsHTML(data);
+  if (entity === 'personnel') html = personnelFieldsHTML(data);
+  if (entity === 'users') html = '<div class="form-grid">' + field('Email akun Google', 'username', data.username, { type: 'email', required: true, full: true }) + field('Peran pengguna', 'role', data.role || 'Collector', { options: ['Administrator', 'Supervisor', 'Collector'], required: true, full: true }) + '</div><p class="form-note">Identitas diverifikasi oleh Google. Administrator mengelola akses dan pengaturan; Supervisor mengelola operasional; Collector tidak dapat menghapus data.</p>';
+  if (entity === 'payments') {
+    html = '<h3 class="form-label">01 / Informasi pembayaran</h3><div class="form-grid">' + field('Kasus piutang', 'caseId', data.caseId, { options: caseOptions(), full: true, required: true }) + '<div class="calc-summary span-2"><span>Sisa piutang</span><strong id="payment-remaining">Rp 0</strong></div>' + field('Nominal pembayaran (Rp)', 'amount', data.amount || 0, { type: 'number', min: 1, required: true }) + field('Tanggal pembayaran', 'date', data.date || today(), { type: 'date', required: true }) + field('Fee penagihan (%)', 'feeRate', data.feeRate == null ? ARMS.db.settings.feeRate : data.feeRate, { type: 'number', max: 100, required: true }) + field('Hak mitra dari fee (%)', 'partnerRate', data.partnerRate == null ? ARMS.db.settings.partnerRate : data.partnerRate, { type: 'number', max: 100, required: true }) + '</div><div class="manual-heading"><h3>02 / Biaya tambahan manual</h3><button type="button" class="text-button" data-action="add-manual">' + icon('plus') + 'Tambah biaya</button></div><div id="manual-rows"></div><div id="manual-empty" class="manual-empty">Tambahkan biaya administrasi, transportasi, atau biaya lainnya jika diperlukan.</div><div class="fee-summary"><div><span>Gross fee</span><strong id="fee-gross"></strong></div><div><span>Total biaya tambahan</span><strong id="fee-manual"></strong></div><div><span>Pendapatan perusahaan</span><strong id="fee-company" class="green-text"></strong></div><div><span>Hak komisi mitra</span><strong id="fee-partner"></strong></div><p>Pendapatan perusahaan + komisi mitra = gross fee + total biaya manual.</p></div>' + field('Bukti transfer', 'proof', data.proof, { type: 'url', hint: 'Tautan HTTPS ke bukti transfer di Google Drive. Batasi akses file untuk tim.' });
+  }
+  const formTitle = entity === 'cases' ? id ? 'Edit Recovery Case' : 'New Recovery Case' : entity === 'clients' ? id ? 'Edit Client / Pemberi Kuasa' : 'Register Client / Pemberi Kuasa' : (id ? 'Edit ' : entity === 'payments' ? 'Catat ' : 'Tambah ') + ENTITY_LABELS[entity];
+  openDialog(formTitle, entity === 'customers' ? 'Tiga bagian ringkas. Semua parameter tetap tersedia.' : 'Data antar modul terhubung dan divalidasi ulang sebelum disimpan.', '<form id="entity-form"' + (entity === 'customers' ? ' novalidate' : '') + '>' + (entity === 'customers' ? customerStepsHTML() : '') + '<div class="dialog-body">' + html + '<div id="form-error" class="inline-error" hidden></div></div>' + (entity === 'customers' ? customerStepsFooter() : entity === 'collections' ? collectionFooterHTML() : formFooter('Simpan ' + ENTITY_LABELS[entity])) + '</form>', ['clients', 'cases', 'collections', 'payments', 'executions'].includes(entity));
+  if (entity === 'customers') {
+    $('#dialog').classList.add('customer-dialog');
+    renderCustomerRegionControls(); loadCustomerRegions(); loadCustomerDistricts();
+  }
+  if (entity === 'clients') { initClientSteps(); renderCustomerRegionControls(); loadCustomerRegions(); loadCustomerDistricts(); }
+  if (entity === 'cases') updateRecoveryFields();
+  if (entity === 'collections') updateCollectionFields();
+  if (entity === 'collections' && data.letterId) { const letter = recordById('letters', data.letterId), field = document.createElement('input'); field.type = 'hidden'; field.name = 'letterId'; field.value = data.letterId; $('#entity-form').appendChild(field); const note = document.createElement('p'); note.className = 'form-note'; note.textContent = 'Laporan untuk SK ' + (letter ? letter.number : data.letterId); $('#entity-form .dialog-body').prepend(note); }
+  if (entity === 'payments' && data.collectionLogId) {
+    const input = document.createElement('input'); input.type = 'hidden'; input.name = 'collectionLogId'; input.value = data.collectionLogId; $('#entity-form').appendChild(input);
+    const log = recordById('collections', data.collectionLogId); const note = document.createElement('p'); note.className = 'form-note'; note.textContent = 'Terhubung ke log ' + (log ? log.number : data.collectionLogId); $('#entity-form .dialog-body').prepend(note);
+  }
+  if (entity === 'payments') { (data.manualDetails || []).forEach(row => addManual(row)); recalculatePayment(); }
+  if (entity === 'executions') recalculateExecution();
+  if (entity === 'transactions') { updateTransactionSource(false); if (!ARMS.db.accounts.length) $('#entity-form button[type="submit"]').disabled = true; }
+}
+function addManual(data) {
+  data = data || { id: crypto.randomUUID(), label: '', amount: 0, mode: 'company', partnerPercent: n(formControl('partnerRate').value) };
+  const row = document.createElement('div'); row.className = 'manual-row'; row.dataset.manualId = data.id || crypto.randomUUID();
+  row.innerHTML = '<div class="manual-row-head"><span>Biaya tambahan</span><button type="button" class="icon-button" data-action="remove-manual" aria-label="Hapus biaya">' + icon('trash') + '</button></div><div class="form-grid"><label class="field"><span>Keterangan biaya *</span><input data-manual-key="label" value="' + escapeHTML(data.label) + '" placeholder="Contoh: Biaya administrasi" required></label><label class="field"><span>Nominal (Rp) *</span><input data-manual-key="amount" type="number" min="0" value="' + n(data.amount) + '" required></label><label class="field"><span>Pembagian biaya</span><select data-manual-key="mode"><option value="company"' + (data.mode !== 'split' ? ' selected' : '') + '>100% Hak Perusahaan</option><option value="split"' + (data.mode === 'split' ? ' selected' : '') + '>Split dengan Mitra</option></select></label><label class="field manual-rate"><span>Hak mitra (%)</span><input data-manual-key="partnerPercent" type="number" min="0" max="100" value="' + n(data.partnerPercent) + '" required></label></div>';
+  $('#manual-rows').appendChild(row); recalculatePayment();
+}
+function manualValues() {
+  return $$('#manual-rows .manual-row').map(row => ({ id: row.dataset.manualId, label: row.querySelector('[data-manual-key="label"]').value, amount: n(row.querySelector('[data-manual-key="amount"]').value), mode: row.querySelector('[data-manual-key="mode"]').value, partnerPercent: n(row.querySelector('[data-manual-key="partnerPercent"]').value) }));
+}
+function calculateFees(amount, feeRate, partnerRate, manual) {
+  const grossFee = Math.round(amount * feeRate / 100); let partnerCommission = Math.round(grossFee * partnerRate / 100), companyRevenue = grossFee - partnerCommission, manualTotal = 0;
+  manual.forEach(row => { const partner = row.mode === 'split' ? Math.round(row.amount * row.partnerPercent / 100) : 0; manualTotal += row.amount; partnerCommission += partner; companyRevenue += row.amount - partner; });
+  return { grossFee, partnerCommission, companyRevenue, manualTotal };
+}
+function recalculatePayment() {
+  if (!formControl('amount') || !$('#fee-gross')) return;
+  const c = recordById('cases', formControl('caseId').value), remaining = c ? Math.max(0, n(c.principal) - paidFor(c.id, ARMS.form.id)) : 0;
+  $('#payment-remaining').textContent = rupiah(remaining); formControl('amount').max = remaining;
+  $$('#manual-rows .manual-row').forEach(row => { const split = row.querySelector('[data-manual-key="mode"]').value === 'split'; row.querySelector('.manual-rate').hidden = !split; row.querySelector('[data-manual-key="partnerPercent"]').disabled = !split; });
+  const manual = manualValues(), totals = calculateFees(n(formControl('amount').value), n(formControl('feeRate').value), n(formControl('partnerRate').value), manual);
+  $('#fee-gross').textContent = rupiah(totals.grossFee); $('#fee-manual').textContent = rupiah(totals.manualTotal); $('#fee-company').textContent = rupiah(totals.companyRevenue); $('#fee-partner').textContent = rupiah(totals.partnerCommission); $('#manual-empty').hidden = manual.length > 0;
+}
+async function submitEntity(form, afterSave) {
+  if (ARMS.locked || !ARMS.form) return;
+  if (ARMS.form.documentBusy) return;
+  if (ARMS.form.entity === 'customers' && !canSubmitCustomer()) return;
+  if (ARMS.form.entity === 'clients' && !canSubmitClient()) return;
+  ARMS.locked = true;
+  const { entity, id } = ARMS.form, data = Object.fromEntries(new FormData(form));
+  try {
+    ['installment', 'penalty', 'overdue', 'amount', 'feeRate', 'partnerRate'].forEach(key => { if (key in data) data[key] = n(data[key]); });
+    if (entity === 'customers') customerPayload(data);
+    if (entity === 'personnel' && Object.prototype.hasOwnProperty.call(ARMS.form, 'ktpUpload')) data.ktpUpload = ARMS.form.ktpUpload;
+    if (['clients', 'cases', 'collections'].includes(entity)) crmPayload(entity, data);
+    if (FINANCE_ENTITIES.includes(entity)) financePayload(entity, data);
+    if (entity === 'payments') { data.manualDetails = manualValues(); Object.assign(data, calculateFees(data.amount, data.feeRate, data.partnerRate, data.manualDetails)); }
+    const saved = await rpc((id ? 'update' : 'add') + ENTITIES[entity], ...(id ? [id, data] : [data]));
+    ARMS.form.id = saved.id; ARMS.form.data = saved;
+    await reloadData();
+    $('#dialog').close(); ARMS.form = null; toast(id ? 'Perubahan berhasil disimpan.' : 'Data baru berhasil ditambahkan.');
+    if (entity === 'collections' && afterSave === 'payment') recordCollectionPayment(saved.id);
+  } catch (error) { $('#form-error').textContent = error.message; $('#form-error').hidden = false; $('#form-error').scrollIntoView({ block: 'nearest' }); }
+  finally { ARMS.locked = false; }
+}
+
+function openDetail(entity, id) {
+  if (entity === 'clients' || entity === 'collections') return openCrmDetail(entity, id);
+  if (FINANCE_ENTITIES.includes(entity)) return openFinanceDetail(entity, id);
+  const r = recordById(entity, id); if (!r) return toast('Data tidak ditemukan.', true);
+  let items = [], title = r.name || r.number || r.username || id;
+  if (entity === 'customers') items = [['No. Kontrak', r.contract || (ARMS.db.cases.find(c => c.customerId === r.id) || {}).contract], ['Nama', r.name], ['Kabupaten/Kota', r.regency], ['Kecamatan', r.district], ['Kelurahan / Desa', r.village], ['Alamat Domisili Debitur', r.address], ['Tanggal Jatuh Tempo', dateLabel(r.dueDate)], ['Nomor Handphone', r.phone], ['Angsuran', rupiah(r.installment)], ['Total Angsuran (Rp)', rupiah(r.total)], ['DENDA', rupiah(r.penalty)], ['Merk/Type', r.brandType || r.vehicle], ['Nomor Polisi', r.plate]];
+  if (entity === 'cases') { const customer = customerFor(r), person = assigneeFor(r.id); items = [['Debitur', (customer || {}).name], ['NIK', (customer || {}).nik], ['Klien', r.client], ['Tipe klien', r.clientType], ['No. kontrak', r.contract], ['Principal outstanding', rupiah(r.principal)], ['Pembayaran diterima', rupiah(paidFor(r.id))], ['Sisa piutang', rupiah(Math.max(0, n(r.principal) - paidFor(r.id)))], ['Overdue days', r.overdue + ' hari'], ['DPD bucket', r.bucket], ['Petugas', (person || {}).name || 'Belum ditugaskan'], ['Status', r.status], ['Aset', r.asset]]; }
+  if (entity === 'personnel') items = [['ID Personel', r.id], ['Nama', r.name], ['Posisi / Jabatan', r.position], ['Jenis personel', r.type === 'Mitra DC' ? 'Mitra' : 'Karyawan'], ['Rekening bank', r.bank], ['NIK', r.nik || '-']];
+  if (entity === 'users') items = [['ID Pengguna', r.id], ['Email Google', r.username], ['Peran', r.role]];
+  if (entity === 'letters') items = [['No. surat', r.number], ['Kasus', (recordById('cases', r.caseId) || {}).number], ['Petugas', (recordById('personnel', r.personnelId) || {}).name], ['Tanggal terbit', dateLabel(r.issuedAt)], ['Tempat', r.place], ['Penandatangan', r.signer], ['Status', r.status]];
+  if (entity === 'payments') items = [['No. kuitansi', r.number], ['Kasus', (recordById('cases', r.caseId) || {}).number], ['Tanggal pembayaran', dateLabel(r.date)], ['Nominal pembayaran', rupiah(r.amount)], ['Gross fee (' + r.feeRate + '%)', rupiah(r.grossFee)], ['Biaya tambahan', rupiah(r.manualTotal)], ['Pendapatan perusahaan', rupiah(r.companyRevenue)], ['Komisi mitra', rupiah(r.partnerCommission)]];
+  let extra = '';
+  if (entity === 'letters') {
+    items.push(['Nama PDF', r.pdfName || 'Belum diunggah'], ['PDF diunggah', r.pdfUploadedAt ? dateLabel(r.pdfUploadedAt) : '-']);
+    if (r.pdfUrl) extra += '<div class="detail-actions"><button class="btn" data-action="download-letter-pdf" data-id="' + escapeHTML(r.id) + '">' + icon('download') + 'Unduh PDF Surat</button></div>';
+  }
+  if (entity === 'personnel' && r.ktpPhoto) extra += '<div class="detail-actions"><button class="btn" data-action="personnel-document" data-id="' + escapeHTML(r.id) + '">Unduh KTP Personel</button></div>';
+  if (entity === 'cases') { items.push(['Layanan', r.service || '-'], ['Tanggal kasus dibuat', dateLabel(r.createdDate)], ['Jatuh tempo acuan', dateLabel(r.dueDateSnapshot)]); extra += caseCrmHTML(r); }
+  if (entity === 'customers') items.unshift(['Proses penanganan', customerProcessClient(r.id).label], ['Perkembangan', customerProcessClient(r.id).detail]);
+  if (entity === 'customers') extra += '<h3 class="form-label">Dokumen debitur</h3><div class="customer-document-links">' + ['ktp', 'stnk'].map(kind => r[kind + 'Photo'] ? '<button class="btn" data-action="customer-document" data-id="' + escapeHTML(r.id) + '" data-kind="' + kind + '">' + icon('download') + 'Foto ' + kind.toUpperCase() + '</button>' : '<span class="form-note">Foto ' + kind.toUpperCase() + ': belum diunggah</span>').join('') + '</div>';
+  if (entity === 'payments') {
+    const log = recordById('collections', r.collectionLogId);
+    if (log) extra += '<div class="detail-actions"><button class="btn"' + actionData('detail', 'collections', log.id) + '>Log terkait: ' + escapeHTML(log.number) + '</button></div>';
+    if (r.proof && /^https:\/\//i.test(r.proof)) extra += '<p class="form-note"><a href="' + escapeHTML(r.proof) + '" target="_blank" rel="noopener noreferrer">Buka bukti transfer &nearr;</a></p>';
+    if ((r.manualDetails || []).length) extra += '<h3 class="form-label">Biaya tambahan manual</h3>' + r.manualDetails.map(row => '<div class="calc-summary"><span>' + escapeHTML(row.label) + '<small style="display:block;margin-top:5px">' + (row.mode === 'company' ? '100% Hak Perusahaan' : 'Split mitra ' + n(row.partnerPercent) + '%') + '</small></span><span>' + rupiah(row.amount) + '</span></div>').join('');
+  }
+  if (entity === 'cases') extra += '<div class="detail-actions"><button class="btn"' + actionData('case-letter', entity, r.id) + '>' + icon('file') + 'Buat surat</button><button class="btn"' + actionData('case-payment', entity, r.id) + '>' + icon('wallet') + 'Catat pembayaran</button></div>';
+  if (entity === 'customers') extra += '<div class="detail-actions"><button class="btn"' + actionData('customer-case', entity, r.id) + '>' + icon('plus') + 'Buat kasus debitur</button></div>';
+  const canDelete = ARMS.db.currentUser.role !== 'Collector';
+  openDialog(title, 'Detail ' + ENTITY_LABELS[entity].toLowerCase() + ' dan informasi terkait.', '<div class="dialog-body"><dl class="detail-grid">' + items.map(item => '<div><dt>' + escapeHTML(item[0]) + '</dt><dd>' + escapeHTML(item[1] == null || item[1] === '' ? '-' : item[1]) + '</dd></div>').join('') + '</dl>' + extra + '</div><footer>' + (canDelete ? '<button class="btn danger"' + actionData('delete', entity, r.id) + '>' + icon('trash') + 'Hapus</button>' : '<span></span>') + '<button class="btn primary"' + actionData(entity === 'letters' ? 'letter' : 'edit', entity, r.id) + '>' + icon(entity === 'letters' ? 'print' : 'file') + (entity === 'letters' ? 'Kelola surat' : 'Edit data') + '</button></footer>');
+}
+function confirmDeletion(entity, id) {
+  const r = recordById(entity, id); if (!r) return;
+  ARMS.deleting = { entity, id };
+  openDialog('Hapus data ini?', 'Tindakan ini tidak dapat dibatalkan.', '<div class="dialog-body"><p style="font-size:12px;line-height:1.9;color:#b69ac8">Hapus <strong>' + escapeHTML(r.name || r.number || r.username || id) + '</strong>? Data yang masih digunakan oleh modul lain tidak dapat dihapus.</p><div id="delete-error" class="inline-error" hidden></div></div><footer><button class="btn" data-action="close-modal">Batal</button><button class="btn danger" data-action="confirm-delete">' + icon('trash') + 'Hapus data</button></footer>');
+}
+async function deleteConfirmed() {
+  if (!ARMS.deleting || ARMS.locked) return; ARMS.locked = true;
+  try { await rpc('delete' + ENTITIES[ARMS.deleting.entity], ARMS.deleting.id); await reloadData(); $('#dialog').close(); ARMS.deleting = null; toast('Data berhasil dihapus.'); }
+  catch (error) { $('#delete-error').textContent = error.message; $('#delete-error').hidden = false; }
+  finally { ARMS.locked = false; }
+}
+
+function openLetter(id, caseId) {
+  const record = id ? recordById('letters', id) : null;
+  if (id && !record) return toast('Surat tidak ditemukan.', true);
+  ARMS.letter = Object.assign({ id: '', number: '', caseId: caseId || '', personnelId: '', issuedAt: today(), place: 'Jakarta', signer: ARMS.db.settings.signer, status: 'Aktif', clientRepresentative: '', clientAddress: '' }, record || {}, { saved: !!record });
+  if (!record) applyLetterCaseDefaults();
+  closeDialog(); renderLetters(); navigate('letters');
+}
+function renderLetters() {
+  if (!ARMS.letter) { $('#module-letters').innerHTML = '<section class="panel no-print" id="letters-container">' + tableHTML('letters', 'letters') + '</section>'; return; }
+  renderLetterWorkspace();
+}
+function renderPaper() {
+  if (!ARMS.letter || !$('#print-document')) return;
+  const l = ARMS.letter, db = ARMS.db, c = recordById('cases', l.caseId), customer = customerFor(c), person = recordById('personnel', l.personnelId), multi = !c || c.clientType !== 'PERORANGAN';
+  const dl = rows => '<dl>' + rows.filter(row => row[0] !== 'NIK' || (customer && customer.nik)).map(row => '<div><dt>' + escapeHTML(row[0]) + '</dt><dd>' + escapeHTML(row[1] || '-') + '</dd></div>').join('') + '</dl>';
+  $('#print-document').innerHTML = '<header class="letterhead"><h2>' + escapeHTML(db.settings.agency) + '</h2><small>ACCOUNT RECEIVABLES MANAGEMENT</small><p>' + escapeHTML(db.settings.address) + '</p></header><div class="paper-title"><h1>' + (multi ? 'SURAT TUGAS PENAGIHAN' : 'SURAT KUASA PENAGIHAN') + '</h1><p>Nomor: ' + escapeHTML(l.number || '[NOMOR OTOMATIS]') + '</p>' + (l.status !== 'Aktif' ? '<div class="paper-status">' + escapeHTML(l.status.toUpperCase()) + '</div>' : '') + '</div><div class="paper-body"><p>Yang bertanda tangan di bawah ini:</p>' + dl([[multi ? 'Perusahaan' : 'Nama', multi ? (c || {}).client || '[Nama klien]' : l.clientRepresentative || '[Pemberi kuasa]'], [multi ? 'Diwakili oleh' : 'Alamat', multi ? l.clientRepresentative || '[Perwakilan klien]' : l.clientAddress || '[Alamat pemberi kuasa]']]) + '<p>Selanjutnya disebut <strong>' + (multi ? 'Pemberi Tugas' : 'Pemberi Kuasa') + '</strong>, dengan ini memberikan ' + (multi ? 'tugas' : 'kuasa') + ' kepada:</p>' + dl([['Nama', (person || {}).name || '[Nama petugas]'], ['Status', (person || {}).type || '[Tipe personel]'], ['Agensi', db.settings.agency]]) + '<p>Untuk melakukan kegiatan penagihan dan penyelesaian kewajiban atas debitur dengan informasi sebagai berikut:</p><div class="paper-debtor">' + dl([['Nama debitur', (customer || {}).name || '[Nama debitur]'], ['NIK', (customer || {}).nik || '[NIK debitur]'], ['Alamat', (customer || {}).address || '[Alamat debitur]'], ['No. kontrak', (c || {}).contract || '[Nomor kontrak]'], ['No. kasus', (c || {}).number || '[Nomor kasus]'], ['Total kewajiban', rupiah((c || {}).principal)], ['Objek / aset', (c || {}).asset || (customer || {}).vehicle || '-']]) + '</div><p>Penerima ' + (multi ? 'tugas' : 'kuasa') + ' wajib melaksanakan penagihan secara profesional, mengutamakan musyawarah, menjaga kerahasiaan data debitur, serta mematuhi peraturan perundang-undangan yang berlaku. Surat ini tidak memberikan kewenangan untuk melakukan intimidasi, kekerasan, atau pengambilan aset secara sepihak.</p><p>Demikian surat ini dibuat untuk dipergunakan sebagaimana mestinya dan berlaku sesuai status penugasan dalam sistem ARMS.</p><div class="paper-date">' + escapeHTML(l.place || '[Tempat]') + ', ' + escapeHTML(dateLabel(l.issuedAt)) + '</div><div class="signatures"><div><span>' + (multi ? 'Pemberi Tugas / Agensi' : 'Pemberi Kuasa') + '</span><div class="signature-space"></div><strong>' + escapeHTML(multi ? l.signer || '[Penandatangan]' : l.clientRepresentative || '[Pemberi kuasa]') + '</strong></div><div><span>' + (multi ? 'Penerima Tugas' : 'Penerima Kuasa') + '</span><div class="signature-space"></div><strong>' + escapeHTML((person || {}).name || '[Nama petugas]') + '</strong></div></div></div><footer class="paper-footer"><span>Dokumen diterbitkan melalui ARMS</span><span>' + escapeHTML(l.number || 'DRAFT') + ' | 1 / 1</span></footer>';
+  $('#letter-save-state').textContent = l.saved ? 'TERSIMPAN' : 'BELUM DISIMPAN';
+}
+async function submitLetter(form) {
+  if (ARMS.locked) return; ARMS.locked = true;
+  const data = Object.assign({}, ARMS.letter, Object.fromEntries(new FormData(form)));
+  delete data.saved;
+  delete data.generatorData;
+  try {
+    const saved = await rpc(data.id ? 'updateSK' : 'addSK', ...(data.id ? [data.id, data] : [data]));
+    ARMS.letter = Object.assign({}, saved, { saved: true });
+    ARMS.db = await rpc('getBootstrap');
+    ARMS.letter = Object.assign({}, recordById('letters', saved.id), { saved: true });
+    renderAll(); toast('Penugasan tersimpan. Upload PDF surat pada form di bawah.');
+  } catch (error) { $('#letter-error').textContent = error.message; $('#letter-error').hidden = false; }
+  finally { ARMS.locked = false; }
+}
+
+function renderReports() {
+  const payments = ARMS.db.payments.filter(p => String(p.date).startsWith(ARMS.period));
+  const sum = key => payments.reduce((total, p) => total + n(p[key]), 0);
+  const clients = [...new Set(payments.map(p => (recordById('cases', p.caseId) || {}).client || 'Lainnya'))];
+  const body = clients.map(client => {
+    const rows = payments.filter(p => ((recordById('cases', p.caseId) || {}).client || 'Lainnya') === client);
+    const total = key => rows.reduce((s, p) => s + n(p[key]), 0);
+    return '<tr><td>' + escapeHTML(client) + '</td><td>' + rows.length + '</td><td>' + rupiah(total('amount')) + '</td><td>' + rupiah(total('grossFee')) + '</td><td class="green-text">' + rupiah(total('companyRevenue')) + '</td><td>' + rupiah(total('partnerCommission')) + '</td></tr>';
+  }).join('');
+  $('#module-reports').innerHTML = '<div class="stack"><div class="finance-totals"><div><span>Total pembayaran</span><strong>' + compact(sum('amount')) + '</strong></div><div><span>Pendapatan perusahaan</span><strong class="green-text">' + compact(sum('companyRevenue')) + '</strong></div><div><span>Hak komisi mitra</span><strong>' + compact(sum('partnerCommission')) + '</strong></div></div>' + chartHTML() + '<section class="panel"><div class="panel-head"><div><h2>Ringkasan per klien</h2><p>Penerimaan dan pembagian fee pada periode terpilih.</p></div><button class="btn small" data-action="report-export">' + icon('download') + 'Ekspor CSV</button></div><div class="table-scroll"><table><thead><tr><th>Klien</th><th>Transaksi</th><th>Pembayaran</th><th>Gross fee</th><th>Pendapatan perusahaan</th><th>Komisi mitra</th></tr></thead><tbody>' + body + '</tbody></table></div>' + (!payments.length ? '<div class="empty">Belum ada pembayaran pada periode ini.<p>Pilih bulan lain atau catat pembayaran baru.</p></div>' : '') + '</section><p class="form-note">Gross fee = pembayaran x persentase fee. Pendapatan perusahaan + komisi mitra = gross fee + biaya tambahan manual.</p></div>';
+}
+function renderSettings() {
+  const settings = ARMS.db.settings, admin = ARMS.db.currentUser.role === 'Administrator';
+  $('#module-settings').innerHTML = '<div class="stack"><section class="panel"><div class="panel-head"><div><h2>Informasi workspace</h2><p>Identitas agensi untuk seluruh dokumen operasional.</p></div>' + icon('settings') + '</div><form id="settings-form" class="settings-section"><fieldset style="border:0;padding:0;margin:0"' + (!admin ? ' disabled' : '') + '><div class="form-grid">' + field('Nama agensi', 'agency', settings.agency, { required: true, full: true }) + field('Alamat agensi', 'address', settings.address, { textarea: true, full: true }) + field('Penandatangan default', 'signer', settings.signer, { required: true, full: true }) + field('Fee penagihan default (%)', 'feeRate', settings.feeRate, { type: 'number', max: 100, required: true }) + field('Hak mitra default (%)', 'partnerRate', settings.partnerRate, { type: 'number', max: 100, required: true }) + field('Target bulanan (Rp)', 'target', settings.target, { type: 'number', required: true, full: true }) + '</div><p class="form-note">Perubahan persentase hanya berlaku untuk transaksi baru. Pengaturan dapat diubah oleh Administrator.</p><div id="settings-error" class="inline-error" hidden></div><button class="btn primary" type="submit">' + icon('save') + 'Simpan perubahan</button></fieldset></form></section><section class="panel"><div class="panel-head"><div><h2>Koneksi database</h2><p>Data tersimpan langsung di Google Sheets.</p></div>' + badge('Aktif') + '</div><div class="settings-section"><div class="settings-info">' + icon('database') + '<div><strong>Google Sheets terhubung</strong>Enam tabel: Users, Customers, Cases, Personnel, SK, dan Payments.<br>Identitas Google diverifikasi pada setiap request.<br><a href="' + escapeHTML(ARMS.db.spreadsheetUrl) + '" target="_blank" rel="noopener noreferrer">Buka spreadsheet &nearr;</a></div></div><button class="btn" data-action="backup">' + icon('download') + 'Unduh cadangan JSON</button><p class="form-note">Cadangan berisi data pribadi dan keuangan. Simpan secara aman dan jangan bagikan kepada pihak yang tidak berwenang.</p></div></section>' + (admin ? '<section class="panel"><div class="panel-head"><div><h2>Pengguna & akses</h2><p>Akses workspace berdasarkan email akun Google.</p></div><button class="btn primary small"' + actionData('add', 'users') + '>' + icon('plus') + 'Tambah pengguna</button></div><div id="users-container">' + tableHTML('users', 'users') + '</div></section>' : '') + '</div>';
+}
+async function submitSettings(form) {
+  if (ARMS.locked) return; ARMS.locked = true;
+  try { const data = Object.fromEntries(new FormData(form)); ['feeRate', 'partnerRate', 'target'].forEach(key => data[key] = n(data[key])); await rpc('updateSettings', data); await reloadData(); toast('Pengaturan berhasil disimpan.'); }
+  catch (error) { $('#settings-error').textContent = error.message; $('#settings-error').hidden = false; }
+  finally { ARMS.locked = false; }
+}
+
+function download(filename, content, type) {
+  const url = URL.createObjectURL(new Blob([content], { type: type || 'application/json' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+function csvDownload(filename, rows) {
+  const csv = '\uFEFF' + rows.map(row => row.map(value => {
+    const text = String(value == null ? '' : value), safe = /^[=+@-]/.test(text) && typeof value !== 'number' ? "'" + text : text;
+    return '"' + safe.replace(/"/g, '""') + '"';
+  }).join(',')).join('\r\n');
+  download(filename, csv, 'text/csv;charset=utf-8;'); toast('File CSV berhasil diunduh.');
+}
+function exportEntity(entity, scope) {
+  const rows = filteredRows(entity, scope || entity);
+  if (entity === 'clients' || entity === 'collections') {
+    const fields = entity === 'clients' ? ['code', 'name', 'industry', 'contactPerson', 'phone', 'email', 'regency', 'district', 'village', 'streetAddress'] : ['number', 'caseId', 'activity', 'activityDate', 'personnelId', 'contactedParty', 'outcome', 'actionPlan', 'nextActionDate', 'report', 'hasPayment'];
+    csvDownload('ARMS-' + entity + '.csv', [fields].concat(rows.map(r => fields.map(key => r[key])))); return;
+  }
+  if (FINANCE_ENTITIES.includes(entity)) { const financeKeys = { executions: ['number', 'caseId', 'personnelId', 'date', 'status', 'method', 'authorityRef', 'handoverRef', 'feeBase', 'feeRate', 'grossFee', 'companyRevenue', 'partnerCommission'], accounts: ['name', 'bank', 'number', 'holder', 'openingBalance'], transactions: ['number', 'accountId', 'date', 'type', 'category', 'client', 'amount', 'reference', 'description', 'sourceType', 'sourceId'] }[entity]; csvDownload('ARMS-' + entity + '.csv', [financeKeys].concat(rows.map(r => financeKeys.map(key => r[key])))); return; }
+  const keys = { customers: ['id', 'contract', 'name', 'regency', 'district', 'village', 'streetAddress', 'dueDate', 'phone', 'installment', 'total', 'penalty', 'brandType', 'plate', 'ktpPhoto', 'stnkPhoto'], cases: ['id', 'number', 'client', 'clientType', 'customerId', 'customerName', 'customerNik', 'contract', 'principal', 'overdue', 'bucket', 'asset', 'status'], letters: ['id', 'number', 'caseId', 'personnelId', 'issuedAt', 'status', 'place', 'signer'], payments: ['id', 'number', 'caseId', 'date', 'amount', 'grossFee', 'companyRevenue', 'partnerCommission', 'manualTotal', 'proof'], personnel: ['id', 'name', 'type', 'bank'], users: ['id', 'username', 'role'] }[entity];
+  csvDownload('ARMS-' + entity + '.csv', [keys].concat(rows.map(row => keys.map(key => row[key]))));
+}
+function exportReport() {
+  const rows = ARMS.db.payments.filter(p => String(p.date).startsWith(ARMS.period));
+  csvDownload('ARMS-laporan-' + ARMS.period + '.csv', [['Kuitansi', 'Tanggal', 'Klien', 'Pembayaran', 'Gross Fee', 'Pendapatan Perusahaan', 'Komisi Mitra', 'Biaya Manual']].concat(rows.map(p => [p.number, p.date, (recordById('cases', p.caseId) || {}).client || '', p.amount, p.grossFee, p.companyRevenue, p.partnerCommission, p.manualTotal])));
+}
+function showHelp() {
+  const steps = [
+    ['01', 'Debitur dalam tiga bagian', 'Isi domisili, keuangan, kendaraan, dan dokumen tanpa form melebihi jendela. Status proses mengikuti kasus terkait.'],
+    ['02', 'Kasus dan pembayaran', 'Principal tersinkron dari total angsuran. Kasus lunas / selesai tidak menerima pembayaran baru.'],
+    ['03', 'Surat Tugas & Kuasa', 'Simpan penugasan, buka generator surat di tab baru, lalu unggah PDF final. Reminder SK tetap tersedia di dashboard.'],
+    ['04', 'Eksekusi / Tarik Unit', 'Kelola petugas, dokumen sah, serah terima, serta persentase fee perusahaan dan mitra.'],
+    ['05', 'Rekening fee', 'Catat pemasukan / pengeluaran aktual. Saldo terpisah dari pokok piutang dan hak fee yang belum diterima.']
+  ];
+  openDialog('Panduan ARMS', 'Satu workspace untuk operasional penagihan yang terarah.', '<div class="dialog-body">' + steps.map(s => '<h3 class="form-label">' + s[0] + ' / ' + s[1] + '</h3><p class="form-note">' + s[2] + '</p>').join('') + '<p class="form-note">Jaga kerahasiaan dokumen debitur. Penagihan dan penarikan hanya sesuai hukum serta dokumen yang sah.</p></div><footer><small>ARMS</small><button class="btn primary" data-action="close-modal">Mulai bekerja</button></footer>');
+}
+function globalSearch(query) {
+  const q = query.trim().toLowerCase(), container = $('#global-results');
+  if (!q || !ARMS.db) { container.hidden = true; return; }
+  const results = [];
+  ['clients', 'customers', 'cases', 'letters'].forEach(entity => {
+    filteredRowsForSearch(entity, q).slice(0, 3).forEach(record => results.push({ entity, record }));
+  });
+  container.innerHTML = results.length ? results.map(item => '<button' + actionData('detail', item.entity, item.record.id) + '>' + escapeHTML(item.record.name || item.record.number) + '<small>' + escapeHTML(ENTITY_LABELS[item.entity]) + ' / ' + escapeHTML(item.record.id) + '</small></button>').join('') : '<div class="empty">Tidak ada hasil ditemukan.</div>';
+  container.hidden = false;
+}
+function filteredRowsForSearch(entity, query) {
+  return ARMS.db[entity].filter(r => {
+    const c = entity === 'cases' ? r : r.caseId ? recordById('cases', r.caseId) : null;
+    return (Object.values(r).join(' ') + ' ' + ((customerFor(c) || {}).name || '')).toLowerCase().includes(query);
+  });
+}
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action], [data-nav]');
+  if (!event.target.closest('.global-search')) $('#global-results').hidden = true;
+  if (!button || ARMS.locked || ARMS.requests) return;
+  if (button.dataset.nav) { if (button.dataset.nav === 'letters') { ARMS.letter = null; if (ARMS.db) renderLetters(); } navigate(button.dataset.nav); return; }
+  const action = button.dataset.action, entity = button.dataset.entity, id = button.dataset.id;
+  if (action === 'close-modal') return closeDialog();
+  if (action === 'help') return showHelp();
+  if (action === 'refresh') { try { await reloadData(); toast('Workspace berhasil dimuat ulang.'); } catch (error) { toast(error.message, true); } return; }
+  if (!ARMS.db) return;
+  if (action === 'bulk-open') { openBulkImport(); return; }
+  if (action === 'bulk-template') { bulkTemplate(); return; }
+  if (action === 'bulk-confirm') { confirmBulkImport(); return; }
+  if (action === 'bulk-errors' && bulkState) { csvDownload('ARMS-kesalahan-impor.csv', [['Baris', 'No. Kontrak', 'Kesalahan']].concat(bulkState.rows.filter(r => r.errors.length).map(r => [r.row, r.data.contract, r.errors.join('; ')]))); return; }
+  if (action === 'remove-workspace-logo') { setWorkspaceLogo(null); return; }
+  if (action === 'personnel-document') { downloadPersonnelKtp(id); return; }
+  if (action === 'remove-personnel-ktp' && ARMS.form && !ARMS.form.documentBusy) { ARMS.form.ktpUpload = null; $('#personnel-ktp-name').textContent = 'Upload KTP'; return; }
+  if (action === 'client-step') { changeClientStep(n(button.dataset.step), true); return; }
+  if (action === 'client-back') { if (ARMS.form.clientStep) changeClientStep(0, false); else closeDialog(); return; }
+  if (action === 'toggle-reminders') { ARMS.remindersExpanded = !ARMS.remindersExpanded; ARMS.reminderPage = 1; renderReminderSection(); return; }
+  if (action === 'reminder-page') { ARMS.reminderPage = n(button.dataset.page); renderReminderSection(); return; }
+  if (action === 'sk-report') { const l = recordById('letters', id); if (l) openForm('collections', null, { letterId: l.id, caseId: l.caseId, personnelId: l.personnelId, activityDate: crmToday(), actionPlan: 'Laporan perkembangan penugasan ' + l.number }); return; }
+  if (action === 'download-letter-pdf') { downloadLetterPdf(id); return; }
+  if (action === 'clear-letter-pdf') { letterPdfState = null; renderLetterPdfForm(); return; }
+  if (crmActions(button)) return;
+  if (action === 'add' || action === 'edit') return openForm(entity, id || undefined);
+  if (action === 'customer-step') return setCustomerStep(n(button.dataset.step), true);
+  if (action === 'customer-back') { const step = ARMS.form.customerState.step; return step ? setCustomerStep(step - 1, false) : closeDialog(); }
+  if (action === 'account-tab') { ARMS.accountsTab = button.dataset.tab; renderAccountsModule(); return; }
+  if (action === 'record-source-fee') { const source = financeSourcesClient().find(s => s.type === button.dataset.type && s.id === id); if (source) openForm('transactions', null, { sourceType: source.type, sourceId: source.id, amount: source.remaining, description: 'Penerimaan fee ' + source.number }); return; }
+  if (action === 'toggle-customer-region') return toggleCustomerRegion();
+  if (action === 'retry-customer-region') { loadCustomerRegions(); loadCustomerDistricts(); return; }
+  if (action === 'remove-customer-photo') return removeCustomerPhoto(button.dataset.kind);
+  if (action === 'customer-document') return downloadCustomerDocument(id, button.dataset.kind);
+  if (action === 'detail') return openDetail(entity, id);
+  if (action === 'delete') return confirmDeletion(entity, id);
+  if (action === 'confirm-delete') return deleteConfirmed();
+  if (action === 'letter') return openLetter(id);
+  if (action === 'case-letter') return openLetter(null, id);
+  if (action === 'case-payment') return openForm('payments', null, { caseId: id });
+  if (action === 'customer-case') return openForm('cases', null, { customerId: id, asset: (recordById('customers', id) || {}).vehicle || '' });
+  if (action === 'back-letters') { ARMS.letter = null; letterPdfState = null; renderLetters(); navigate('letters'); return; }
+  if (action === 'add-manual') return addManual();
+  if (action === 'remove-manual') { button.closest('.manual-row').remove(); recalculatePayment(); return; }
+  if (action === 'page') { ARMS.pages[button.dataset.scope] = Math.max(1, n(button.dataset.page)); rerenderTable(button.dataset.scope); return; }
+  if (action === 'bucket') { ARMS.filters.cases = { bucket: button.dataset.bucket }; ARMS.pages.cases = 1; renderEntity('cases'); navigate('cases'); return; }
+  if (action === 'export') return exportEntity(entity, button.dataset.scope);
+  if (action === 'report-export') return exportReport();
+  if (action === 'backup') { download('ARMS-backup-' + today() + '.json', JSON.stringify(ARMS.db, null, 2)); toast('Cadangan berhasil diunduh. Simpan file dengan aman.'); }
+});
+document.addEventListener('input', event => {
+  const input = event.target;
+  if (input.dataset.crmSearch && ARMS.form) { crmSearchInput(input); return; }
+  if (input.id === 'global-search') return globalSearch(input.value);
+  if (input.dataset.query) { ARMS.query[input.dataset.query] = input.value; ARMS.pages[input.dataset.query] = 1; rerenderTable(input.dataset.query); return; }
+  if (input.closest('#entity-form') && ARMS.form) {
+    if (ARMS.form.entity === 'customers' || ARMS.form.entity === 'clients') {
+      if (['installment', 'penalty'].includes(input.name)) formControl('total').value = rupiah(n(formControl('installment').value) + n(formControl('penalty').value));
+      if (['regency', 'district'].includes(input.name)) ARMS.form.customerState[input.name] = input.value;
+      if (input.name === 'plate') input.value = input.value.toUpperCase();
+      if (input.name === 'code') input.value = input.value.toUpperCase();
+    }
+    if (ARMS.form.entity === 'payments') recalculatePayment();
+    if (ARMS.form.entity === 'executions') recalculateExecution();
+  }
+  if (input.closest('#letter-form') && ARMS.letter && input.name) { ARMS.letter[input.name] = input.value; ARMS.letter.saved = false; updateLetterFormState(); }
+});
+document.addEventListener('change', event => {
+  const input = event.target;
+  if (input.id === 'bulk-file') { chooseBulkFile(input); return; }
+  if (input.id === 'workspace-logo-file') { const file = input.files && input.files[0]; input.value = ''; if (file) setWorkspaceLogo(file); return; }
+  if (input.id === 'personnel-ktp-file') { selectPersonnelKtp(input); return; }
+  if (input.id === 'letter-pdf-file') { chooseLetterPdf(input); return; }
+  if (input.dataset.crmSearch && ARMS.form) { crmSearchInput(input); return; }
+  if (input.dataset.customerPhoto) { selectCustomerPhoto(input); return; }
+  if (input.dataset.filterScope) { const scope = input.dataset.filterScope; ARMS.filters[scope] = Object.assign({}, ARMS.filters[scope] || {}, { [input.dataset.filterKey]: input.value }); ARMS.pages[scope] = 1; rerenderTable(scope); }
+  if (input.id === 'period' && input.value) { ARMS.period = input.value; if (ARMS.db) { renderDashboard(); renderReminderSection(); renderReports(); } }
+  if (input.closest('#entity-form') && ARMS.form) {
+    if (FINANCE_ENTITIES.includes(ARMS.form.entity)) financeChanged(input);
+    if (['customers', 'clients'].includes(ARMS.form.entity) && ['regencyId', 'districtId', 'regency', 'district'].includes(input.name)) customerRegionChanged(input);
+    if (ARMS.form.entity === 'cases' && input.name === 'customerId') updateRecoveryFields();
+    if (ARMS.form.entity === 'collections') updateCollectionFields();
+    if (ARMS.form.entity === 'payments') recalculatePayment();
+  }
+  if (input.closest('#letter-form') && ARMS.letter && input.name) {
+    ARMS.letter[input.name] = input.value; ARMS.letter.saved = false;
+    if (input.name === 'customerId') ARMS.letter.caseId = (ARMS.db.cases.find(c => c.customerId === input.value) || {}).id || '';
+    if (input.name === 'caseId' || input.name === 'customerId') applyLetterCaseDefaults();
+    if (input.name === 'caseId' || input.name === 'customerId') renderLetters(); else updateLetterFormState();
+  }
+});
+document.addEventListener('submit', event => {
+  event.preventDefault();
+  if (event.target.id === 'entity-form') submitEntity(event.target, event.submitter && event.submitter.value === 'payment' ? 'payment' : '');
+  if (event.target.id === 'letter-form') submitLetter(event.target);
+  if (event.target.id === 'letter-pdf-form') submitLetterPdf();
+  if (event.target.id === 'settings-form') submitSettings(event.target);
+});
+document.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('#global-search').focus(); }
+  if (event.key === 'Escape') { $('#global-results').hidden = true; $('#sidebar').classList.remove('open'); $('#mobile-scrim').hidden = true; }
+  if (event.key === 'Enter' && event.target.id === 'global-search') { const first = $('#global-results button'); if (first) { event.preventDefault(); first.click(); } }
+});
+$('#dialog').addEventListener('cancel', event => { if (ARMS.locked) event.preventDefault(); });
+$('#dialog').addEventListener('click', event => { if (event.target === $('#dialog')) { const rect = $('#dialog').getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeDialog(); } });
+$('#mobile-menu').addEventListener('click', () => { $('#sidebar').classList.toggle('open'); $('#mobile-scrim').hidden = !$('#sidebar').classList.contains('open'); });
+$('#mobile-scrim').addEventListener('click', () => { $('#sidebar').classList.remove('open'); $('#mobile-scrim').hidden = true; });
+$('#primary-action').addEventListener('click', () => {
+  if (!ARMS.db || ARMS.locked || ARMS.requests) return;
+  if (ARMS.module === 'reports') return exportReport();
+  if (ARMS.module === 'letters') return openLetter();
+  if (ARMS.module === 'accounts') return openForm('transactions');
+  if (ARMS.module === 'collections' && (ARMS.filters.collections || {}).caseId) { const id = ARMS.filters.collections.caseId; return openForm('collections', null, { caseId: id, personnelId: (assigneeFor(id) || {}).id || '' }); }
+  openForm(ARMS.module === 'dashboard' ? 'cases' : ARMS.module);
+});
+$('#period').value = ARMS.period;
+setInterval(() => { if (ARMS.db && ARMS.module === 'dashboard') renderReminderSection(); }, 60000);
+fillIcons();
+reloadData().catch(error => {
+  $('#connection-status').textContent = 'Koneksi belum tersedia';
+  $('#boot-error').innerHTML = '<strong>Workspace belum dapat dimuat.</strong><br>' + escapeHTML(error.message) + '<br><button class="btn" data-action="refresh">' + icon('refresh') + 'Coba lagi</button>';
+  $('#boot-error').hidden = false;
+});
+</script>

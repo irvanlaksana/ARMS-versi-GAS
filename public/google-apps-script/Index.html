@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="id" class="dark">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARMS | Account Receivables Management System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: { colors: { arms: { canvas: '#111318', panel: '#1a1c24', accent: '#8068e8' } }, fontFamily: { sans: ['Inter', 'sans-serif'] } } };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <?!= HtmlService.createHtmlOutputFromFile('css_main').getContent(); ?>
+</head>
+<body class="bg-arms-canvas text-slate-200 font-sans">
+  <aside id="sidebar" class="sidebar no-print">
+    <button class="brand" data-nav="dashboard" aria-label="ARMS Dashboard"><svg viewBox="0 0 32 36" fill="none"><path d="M16 2 29 7v12c0 7-13 15-13 15S3 26 3 19V7L16 2Z" stroke="currentColor" stroke-width="2.2"/><path d="m9 23 7-15 7 15m-11-5h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span><strong>ARMS<span>.</span></strong><small>Account Receivables<br>Management System</small></span></button>
+    <button class="workspace" data-nav="settings"><span class="workspace-icon">A</span><span><strong id="workspace-name">Workspace utama</strong><small>Agency workspace</small></span><span class="chevron">&#8964;</span></button>
+    <nav aria-label="Navigasi utama">
+      <p class="nav-label">WORKSPACE</p>
+      <button data-nav="dashboard" class="active"><span data-icon="dashboard"></span>Dashboard</button>
+      <button data-nav="clients"><span data-icon="business"></span>Clients &amp; Creditors Master</button>
+      <button data-nav="customers"><span data-icon="users"></span>Debitur</button>
+      <button data-nav="cases"><span data-icon="case"></span>Kasus Piutang<span id="case-count" class="nav-count">0</span></button>
+      <button data-nav="collections"><span data-icon="chat"></span>Collections &amp; Communications Log</button>
+      <button data-nav="letters"><span data-icon="file"></span>Surat Tugas &amp; Kuasa</button>
+      <button data-nav="executions"><span data-icon="car"></span>Eksekusi / Tarik Unit</button>
+      <p class="nav-label">KEUANGAN</p>
+      <button data-nav="payments"><span data-icon="wallet"></span>Pembayaran</button>
+      <button data-nav="accounts"><span data-icon="database"></span>Rekening</button>
+      <button data-nav="reports"><span data-icon="chart"></span>Laporan</button>
+      <p class="nav-label">MANAJEMEN</p>
+      <button data-nav="personnel"><span data-icon="users"></span>Tim &amp; Mitra</button>
+      <button data-nav="settings"><span data-icon="settings"></span>Pengaturan</button>
+    </nav>
+    <div class="sidebar-bottom"><button class="help-link" data-action="help"><span data-icon="help"></span>Pusat bantuan<span>&#8599;</span></button><button class="connection" data-nav="settings"><span data-icon="database"></span><span><strong>Google Sheets</strong><small id="connection-status">Menghubungkan database...</small></span></button><div class="version"><span>ARMS v1.0</span><span>Better collections</span></div></div>
+  </aside>
+  <div id="mobile-scrim" class="mobile-scrim no-print" hidden></div>
+  <div class="main-shell">
+    <header class="topbar no-print"><div class="breadcrumb"><button id="mobile-menu" class="icon-button" aria-label="Buka menu"><span data-icon="menu"></span></button><span data-icon="home"></span><span>/</span><span>Workspace</span><span>&#8250;</span><strong id="breadcrumb-current">Overview</strong></div><div class="topbar-right"><div class="global-search"><span data-icon="search"></span><input id="global-search" placeholder="Cari debitur, kasus, atau surat..." aria-label="Pencarian global"><kbd>Ctrl K</kbd><div id="global-results" hidden></div></div><button class="icon-button" data-action="refresh" title="Muat ulang data" aria-label="Muat ulang data"><span data-icon="refresh"></span></button><span class="header-divider"></span><button class="profile" data-nav="settings"><span class="avatar">AP</span><span><strong id="profile-name">ARMS Workspace</strong><small id="profile-role">Administrator</small></span></button></div></header>
+    <main id="main-content">
+      <div class="page-heading no-print"><div><h1 id="page-title">Dashboard</h1><p id="page-subtitle">Pantau piutang, penagihan, dan kinerja tim Anda.</p></div><div class="heading-actions"><label id="period-control" class="period-control"><span data-icon="calendar"></span><input id="period" type="month" aria-label="Periode laporan"></label><button id="bulk-import-button" data-action="bulk-open" class="btn" hidden><span data-icon="download"></span>Import Bulk Debitor</button><button id="primary-action" class="btn primary"><span data-icon="plus"></span><span>Tambah Kasus</span></button></div></div>
+      <div id="boot-error" class="error-banner no-print" hidden></div>
+      <div id="module-dashboard" class="module no-print"></div>
+      <div id="module-clients" class="module no-print" hidden></div>
+      <div id="module-customers" class="module no-print" hidden></div>
+      <div id="module-cases" class="module no-print" hidden></div>
+      <div id="module-collections" class="module no-print" hidden></div>
+      <div id="module-letters" class="module" hidden></div>
+      <div id="module-payments" class="module no-print" hidden></div>
+      <div id="module-executions" class="module no-print" hidden></div>
+      <div id="module-accounts" class="module no-print" hidden></div>
+      <div id="module-reports" class="module no-print" hidden></div>
+      <div id="module-personnel" class="module no-print" hidden></div>
+      <div id="module-settings" class="module no-print" hidden></div>
+    </main>
+  </div>
+  <div id="network-loader" class="network-loader no-print" role="status"><div><span class="spinner"></span><p id="network-message">Menghubungkan Google Sheets...</p><small>Mohon tunggu sebentar.</small></div></div>
+  <dialog id="dialog" class="dialog no-print" aria-labelledby="dialog-title"><header><div><h2 id="dialog-title"></h2><p id="dialog-subtitle"></p></div><button class="icon-button" data-action="close-modal" aria-label="Tutup dialog"><span data-icon="close"></span></button></header><div id="dialog-content"></div></dialog>
+  <div id="toast-region" class="toast-region no-print" aria-live="polite"></div>
+  <?!= HtmlService.createHtmlOutputFromFile('js_customer').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_crm').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_operations').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_letters').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_workspace').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_bulk').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('js_main').getContent(); ?>
+</body>
+</html>

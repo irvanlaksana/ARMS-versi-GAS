@@ -1,0 +1,173 @@
+<script>
+const CLIENT_INDUSTRIES = ['MULTIFINANCE', 'PERBANKAN', 'FINTECH', 'PERORANGAN'];
+const RECOVERY_SERVICES = ['Penagihan Piutang', 'Mediasi & Penyelesaian', 'Eksekusi / Tarik Unit'];
+const COLLECTION_CHANNELS = ['Kunjungan Lapangan', 'WhatsApp & Chat', 'Eksekusi Unit', 'Penarikan aset jaminan'];
+const COLLECTION_PARTIES = ['Debitur Langsung', 'Keluarga / Perwakilan Debitur', 'Penjamin', 'Pihak Lain'];
+const COLLECTION_OUTCOMES = ['Janji Bayar (Promise to Pay)', 'Pembayaran Titipan / Pelunasan', 'Sepakat Mediasi Kantor', 'Unit Ditemukan / Teridentifikasi', 'Unit Berhasil Ditarik / Diserahterimakan', 'Debitur Tidak di Rumah / Nomor Tidak Aktif', 'Menolak Bayar / Tidak Kooperatif'];
+function crmToday(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = value ? new Date(value) : new Date();
+  if (isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  return parts.find(p => p.type === 'year').value + '-' + parts.find(p => p.type === 'month').value + '-' + parts.find(p => p.type === 'day').value;
+}
+function crmValidDate(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value || '') && !isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value; }
+function crmDays(due, created) { return crmValidDate(due) && crmValidDate(created) ? Math.max(0, Math.floor((Date.parse(created) - Date.parse(due)) / 86400000)) : null; }
+function crmVehicle(customer) {
+  if (!customer) return '';
+  const description = String(customer.brandType || customer.vehicle || '').trim(), plate = String(customer.plate || '').trim();
+  return !plate || description.toUpperCase().endsWith(plate.toUpperCase()) ? description : [description, plate].filter(Boolean).join(' / ');
+}
+function crmReceipt(logId) { return logId ? ARMS.db.payments.find(p => p.collectionLogId === logId) : null; }
+function crmNextStatus(log) {
+  if ((recordById('cases', log.caseId) || {}).status === 'Selesai') return 'Kasus selesai';
+  if (!log.nextActionDate) return 'Tanpa jadwal';
+  return log.nextActionDate < crmToday() ? 'Lewat target' : log.nextActionDate === crmToday() ? 'Hari ini' : 'Terjadwal';
+}
+function crmClientOptions() { return [{ value: '', label: 'Pilih Client / Creditor' }].concat(ARMS.db.clients.map(c => ({ value: c.id, label: c.code + ' / ' + c.name + ' / ' + c.industry }))); }
+function crmSearchField(label, name, value, options, disabled) {
+  const selected = options.find(o => o.value === value);
+  return '<label class="field span-2"><span>' + escapeHTML(label) + ' *</span><input type="text" list="crm-options-' + name + '" data-crm-search="' + name + '" value="' + escapeHTML(selected ? selected.label : '') + '" placeholder="Ketik untuk mencari, lalu pilih hasil yang sesuai" autocomplete="off" required' + (disabled ? ' disabled' : '') + '><input type="hidden" name="' + name + '" value="' + escapeHTML(value || '') + '"><datalist id="crm-options-' + name + '">' + options.filter(o => o.value).map(o => '<option value="' + escapeHTML(o.label) + '" data-record-id="' + escapeHTML(o.value) + '"></option>').join('') + '</datalist></label>';
+}
+function crmSearchInput(input) {
+  const name = input.dataset.crmSearch;
+  const match = $$('#crm-options-' + name + ' option').find(o => o.value === input.value);
+  formControl(name).value = match ? match.dataset.recordId : '';
+  input.setCustomValidity(match ? '' : 'Pilih data yang terdaftar dari hasil pencarian.');
+  if (ARMS.form.entity === 'cases') updateRecoveryFields();
+  if (ARMS.form.entity === 'collections') {
+    const c = recordById('cases', formControl('caseId').value);
+    formControl('personnelId').value = c ? (assigneeFor(c.id) || {}).id || '' : '';
+    updateCollectionFields();
+  }
+}
+
+function clientFieldsHTML(data) {
+  ARMS.form.customerState = {
+    manual: Boolean(data.regency && !data.regencyId), regencyId: data.regencyId || '', regency: data.regency || '', districtId: data.districtId || '', district: data.district || '',
+    cities: CUSTOMER_DEFAULT_CITIES, districts: CUSTOMER_DEFAULT_DISTRICTS[data.regencyId] || [], citiesLoading: false, districtsLoading: false, cityError: '', districtError: '', uploads: {}, pending: 0
+  };
+  return '<div class="form-grid">' + field('Kode Perusahaan Klien', 'code', data.code, { required: true, maxLength: 30, placeholder: 'ADIRA-JKT / PK-001', pattern: '[A-Za-z0-9][A-Za-z0-9._\\-]*' }) + field('Industri', 'industry', data.industry || 'MULTIFINANCE', { required: true, options: CLIENT_INDUSTRIES }) + field('Nama Perusahaan Lengkap / Pemberi Kuasa', 'name', data.name, { required: true, full: true, maxLength: 200 }) + field('Contact Person', 'contactPerson', data.contactPerson, { required: true, maxLength: 150 }) + field('No. Phone / WhatsApp', 'phone', data.phone, { type: 'tel', required: true, pattern: '[+0-9\\s\\(\\)\\-]{8,20}', maxLength: 20 }) + field('Email (Opsional)', 'email', data.email, { type: 'email', full: true, maxLength: 254 }) + '</div><div class="customer-section"><h3>Alamat Domisili / Kantor</h3><button class="text-button" type="button" data-action="toggle-customer-region" id="region-mode-label">Isi wilayah manual</button></div><div id="customer-region-controls" class="form-grid"></div><div id="customer-region-feedback" class="region-feedback"></div><div class="form-grid customer-address">' + field('Kelurahan / Desa', 'village', data.village, { required: true, full: true, maxLength: 150 }) + field('Alamat Domisili / Kantor', 'streetAddress', data.streetAddress || data.address, { required: true, textarea: true, full: true }) + '</div><p class="form-note">Kode klien unik. Perubahan identitas disinkronkan ke kasus dan mutasi terkait.</p>';
+}
+function recoveryFieldsHTML(data) {
+  const customer = recordById('customers', data.customerId);
+  return '<div class="form-grid">' + crmSearchField('Client / Creditor', 'clientId', data.clientId, crmClientOptions()) + crmSearchField('Debitur', 'customerId', data.customerId, customerOptions()) + field('Nomor Kontrak / Bukti Hutang', 'contract', (customer || {}).contract, { disabled: true, hint: 'Diambil dari data debitur.' }) + field('Layanan', 'service', data.service || RECOVERY_SERVICES[0], { options: RECOVERY_SERVICES, required: true }) + field('Principal Outstanding (Rp)', 'principal', rupiah((customer || {}).total), { disabled: true, hint: 'Total Angsuran debitur.' }) + field('Hari Tunggakan', 'overdue', '', { disabled: true, hint: 'Jatuh tempo sampai tanggal kasus dibuat, waktu Jakarta.' }) + field('Assign To Personnel / Mitra', 'personnelId', data.personnelId, { options: personnelOptions(), required: true, full: true }) + field('Asset Collateral Description (Unit Agunan Fidusia)', 'asset', crmVehicle(customer), { textarea: true, disabled: true, full: true, hint: 'Diambil otomatis dari Merk/Type dan Nomor Polisi debitur.' }) + (ARMS.form.id ? field('Status kasus', 'status', data.status, { options: ['Aktif', 'Dalam Proses', 'Selesai', 'Ditunda'], full: true }) : '') + '</div><div id="recovery-calculation-note" class="form-note"></div><div id="recovery-data-warning" class="inline-error" hidden></div>';
+}
+function updateRecoveryFields() {
+  const customer = recordById('customers', formControl('customerId').value);
+  const created = ARMS.form.data.createdDate || (ARMS.form.id ? crmToday(ARMS.form.data.createdAt) : crmToday());
+  const days = crmDays((customer || {}).dueDate, created);
+  formControl('contract').value = (customer || {}).contract || '';
+  formControl('principal').value = rupiah((customer || {}).total);
+  formControl('asset').value = crmVehicle(customer);
+  formControl('overdue').value = days === null ? 'Belum dapat dihitung' : days + ' hari';
+  $('#recovery-calculation-note').textContent = customer && customer.dueDate ? 'Jatuh tempo ' + dateLabel(customer.dueDate) + ' sampai ' + dateLabel(created) + '. Tanggal pembuatan asli dipertahankan saat edit.' : 'Pilih debitur dengan nomor kontrak dan tanggal jatuh tempo yang valid.';
+  $('#recovery-data-warning').hidden = !customer || (days !== null && !!customer.contract);
+  $('#recovery-data-warning').textContent = 'Lengkapi nomor kontrak dan tanggal jatuh tempo pada data debitur sebelum menyimpan kasus.';
+}
+function collectionFieldsHTML(data) {
+  const receipt = crmReceipt(ARMS.form.id), c = recordById('cases', data.caseId);
+  const options = ARMS.db.cases.map(c => ({ value: c.id, label: c.number + ' / ' + ((customerFor(c) || {}).name || '-') + ' / ' + c.client + ' / ' + c.contract }));
+  return '<div class="form-grid">' + crmSearchField('Pilih Berkas Perkara / Kasus (Ketik untuk mencari)', 'caseId', data.caseId, options, !!receipt) + '<div id="collection-case-summary" class="crm-linked-summary span-2" hidden></div>' + field('Pilih Tipe Aktivitas & Kanal Interaksi', 'activity', data.activity, { options: [{ value: '', label: 'Pilih aktivitas / kanal' }].concat(COLLECTION_CHANNELS), required: true }) + field('Tanggal Aktivitas', 'activityDate', data.activityDate || crmToday(), { type: 'date', required: true }) + field('Petugas / Mitra Lapangan / PIC', 'personnelId', data.personnelId || (c ? (assigneeFor(c.id) || {}).id : ''), { required: true, options: personnelOptions() }) + field('Pihak yang Ditemui / Dihubungi', 'contactedParty', data.contactedParty || 'Debitur Langsung', { options: COLLECTION_PARTIES, required: true }) + field('Hasil Tindakan / Outcome', 'outcome', data.outcome, { required: true, full: true, options: [{ value: '', label: 'Pilih hasil tindakan' }].concat(COLLECTION_OUTCOMES) }) + field('Tindak Lanjut / Action Plan', 'actionPlan', data.actionPlan, { maxLength: 1500 }) + field('Target Tanggal Janji Bayar / Next Action', 'nextActionDate', data.nextActionDate, { type: 'date', required: data.outcome === COLLECTION_OUTCOMES[0] }) + field('Laporan Rinci Pembicaraan & Situasi Lapangan', 'report', data.report, { textarea: true, required: true, full: true, hint: 'Minimal 10 karakter. Catat fakta dan kesepakatan secara profesional.' }) + '</div><div class="collection-payment-question"><div><h3>Apakah ada pembayaran?</h3><p>Log disimpan lebih dulu, kuitansi dicatat secara terpisah.</p></div><label><input name="hasPayment" type="checkbox" value="true"' + (data.hasPayment === true || String(data.hasPayment).toLowerCase() === 'true' ? ' checked' : '') + (receipt ? ' disabled' : '') + '>Ya, ada pembayaran</label></div><div id="collection-payment-state" class="form-note"></div>';
+}
+function collectionFooterHTML() { return '<footer><button type="button" class="btn" data-action="close-modal">Batal</button><div><button class="btn" type="submit">' + icon('save') + 'Simpan Log</button><button class="btn primary" type="submit" value="payment" id="save-log-payment" hidden>' + icon('wallet') + 'Simpan & Catat Pembayaran</button></div></footer>'; }
+function updateCollectionFields() {
+  const c = recordById('cases', formControl('caseId').value), receipt = crmReceipt(ARMS.form.id);
+  const outcome = formControl('outcome').value, hasPayment = formControl('hasPayment');
+  if (outcome === COLLECTION_OUTCOMES[1]) hasPayment.checked = true;
+  hasPayment.disabled = !!receipt || outcome === COLLECTION_OUTCOMES[1];
+  formControl('activityDate').max = crmToday();
+  if (c && (c.createdDate || c.createdAt)) formControl('activityDate').min = c.createdDate || crmToday(c.createdAt);
+  formControl('nextActionDate').required = outcome === COLLECTION_OUTCOMES[0];
+  formControl('nextActionDate').min = formControl('activityDate').value;
+  formControl('report').minLength = 10; formControl('report').maxLength = 5000; formControl('report').rows = 3;
+  $('#collection-case-summary').hidden = !c;
+  $('#collection-case-summary').innerHTML = c ? '<span>' + escapeHTML(c.client) + '</span><span>' + escapeHTML(c.contract) + '</span><strong>' + rupiah(Math.max(0, n(c.principal) - paidFor(c.id))) + ' sisa piutang</strong>' : '';
+  $('#save-log-payment').hidden = !hasPayment.checked || !!receipt;
+  $('#save-log-payment').disabled = !c || caseSuccessfulClient(c) || n(c.principal) <= paidFor(c.id);
+  if (ARMS.form.data.letterId) { const search = $('#entity-form [data-crm-search="caseId"]'); if (search) search.disabled = true; formControl('personnelId').disabled = true; }
+  $('#collection-payment-state').innerHTML = receipt ? 'Pembayaran terhubung: <button type="button" class="text-button"' + actionData('detail', 'payments', receipt.id) + '>' + escapeHTML(receipt.number) + '</button>' : hasPayment.checked ? 'Klik Simpan & Catat Pembayaran untuk membuat kuitansi setelah log tersimpan.' : '';
+}
+function crmPayload(entity, data) {
+  if (entity === 'clients') {
+    const state = ARMS.form.customerState;
+    data.regencyId = state.manual ? '' : data.regencyId; data.districtId = state.manual ? '' : data.districtId;
+    data.regency = state.manual ? data.regency : state.regency; data.district = state.manual ? data.district : state.district;
+    if (!state.manual && (!data.regencyId || !data.districtId)) throw new Error('Pilih kabupaten/kota dan kecamatan, atau gunakan wilayah manual.');
+    data.code = String(data.code || '').trim().toUpperCase();
+    if (ARMS.db.clients.some(c => c.id !== ARMS.form.id && String(c.code).toUpperCase() === data.code)) throw new Error('Kode klien sudah digunakan.');
+  }
+  if (entity === 'cases') {
+    const client = recordById('clients', data.clientId), customer = recordById('customers', data.customerId);
+    if (!client || !customer) throw new Error('Pilih klien dan debitur yang terdaftar.');
+    if (!recordById('personnel', data.personnelId)) throw new Error('Pilih penanggung jawab kasus.');
+    const created = ARMS.form.data.createdDate || (ARMS.form.id ? crmToday(ARMS.form.data.createdAt) : crmToday()), days = crmDays(customer.dueDate, created);
+    if (days === null || !customer.contract) throw new Error('Tanggal jatuh tempo / nomor kontrak debitur belum valid.');
+    Object.assign(data, { client: client.name, clientType: client.industry, contract: customer.contract, principal: n(customer.total), overdue: days, asset: crmVehicle(customer), status: data.status || 'Aktif' });
+  }
+  if (entity === 'collections') {
+    data.hasPayment = formControl('hasPayment').checked;
+    if (ARMS.form.data.letterId) { const letter = recordById('letters', ARMS.form.data.letterId); data.letterId = ARMS.form.data.letterId; data.personnelId = letter ? letter.personnelId : ''; }
+    const c = recordById('cases', data.caseId);
+    if (!c) throw new Error('Pilih berkas perkara / kasus yang terdaftar.');
+    if (!recordById('personnel', data.personnelId)) throw new Error('Pilih Petugas / PIC yang terdaftar.');
+    if (String(data.report || '').trim().length < 10) throw new Error('Laporan rinci minimal 10 karakter.');
+    if (data.outcome === COLLECTION_OUTCOMES[0] && !data.nextActionDate) throw new Error('Target tanggal janji bayar wajib diisi.');
+    if (data.nextActionDate && data.nextActionDate < data.activityDate) throw new Error('Next Action tidak boleh sebelum tanggal aktivitas.');
+  }
+}
+
+function renderClientsModule() {
+  $('#module-clients').innerHTML = '<div class="stack"><p class="form-note">' + ARMS.db.clients.length + ' klien terdaftar. Satu master untuk kasus, komunikasi, surat, dan penerimaan fee.</p><section class="panel">' + tableHTML('clients') + '</section><p class="form-note">Klien yang masih digunakan kasus atau mutasi tidak dapat dihapus.</p></div>';
+}
+function renderCollectionsModule() {
+  const filter = ARMS.collectionTab || 'all', caseId = (ARMS.filters.collections || {}).caseId || '';
+  $('#module-collections').innerHTML = '<div class="stack">' + (caseId ? '<div class="crm-case-filter">Riwayat ' + escapeHTML((recordById('cases', caseId) || {}).number || caseId) + '<button class="text-button" data-action="clear-collection-case">Semua kasus &times;</button></div>' : '') + '<section class="panel"><div class="account-tabs">' + [{ id: 'all', label: 'Semua aktivitas' }, { id: 'next', label: 'Perlu tindak lanjut' }, { id: 'payment', label: 'Pembayaran belum dicatat' }].map(t => '<button class="' + (filter === t.id ? 'active' : '') + '" data-action="collection-tab" data-tab="' + t.id + '">' + t.label + '</button>').join('') + '</div>' + tableHTML('collections') + '</section><p class="form-note">Outcome dan janji bayar tidak mengubah saldo. Piutang berkurang hanya setelah pembayaran disimpan.</p></div>';
+}
+function crmRowCells(entity, r) {
+  if (entity === 'clients') return ['<button class="row-link"' + actionData('detail', entity, r.id) + '>' + escapeHTML(r.name) + '</button><small>' + escapeHTML(r.code) + '</small>', escapeHTML(r.industry), escapeHTML(r.contactPerson || 'Belum dilengkapi'), escapeHTML(r.phone || '-') + '<small>' + escapeHTML(r.email || 'Email tidak diisi') + '</small>', escapeHTML(r.regency || 'Lengkapi data migrasi') + '<small>' + escapeHTML(r.district || '') + '</small>', ARMS.db.cases.filter(c => c.clientId === r.id).length];
+  const c = recordById('cases', r.caseId), customer = customerFor(c), receipt = crmReceipt(r.id);
+  return ['<button class="row-link"' + actionData('detail', 'collections', r.id) + '>' + escapeHTML(r.activity) + '</button><small>' + escapeHTML(dateLabel(r.activityDate)) + ' / ' + escapeHTML(r.number) + '</small>', '<button class="row-link"' + actionData('detail', 'cases', r.caseId) + '>' + escapeHTML((c || {}).number || '-') + '</button><small>' + escapeHTML((customer || {}).name || '-') + '</small>', escapeHTML((recordById('personnel', r.personnelId) || {}).name || '-') + '<small>' + escapeHTML(r.contactedParty) + '</small>', '<div class="log-outcome">' + escapeHTML(r.outcome) + '</div>', escapeHTML(dateLabel(r.nextActionDate)) + '<small>' + escapeHTML(crmNextStatus(r)) + '</small>', receipt ? '<button class="text-button green-text"' + actionData('detail', 'payments', receipt.id) + '>Tercatat</button>' : r.hasPayment ? badge('Belum dicatat') + (c && !caseSuccessfulClient(c) && n(c.principal) > paidFor(c.id) ? '<br><button class="text-button" data-action="collection-payment" data-id="' + escapeHTML(r.id) + '">Catat pembayaran</button>' : '') : '<small>Tidak ada</small>'];
+}
+function caseCrmHTML(c) {
+  const client = recordById('clients', c.clientId), logs = ARMS.db.collections.filter(l => l.caseId === c.id).sort((a, b) => b.activityDate.localeCompare(a.activityDate) || b.createdAt.localeCompare(a.createdAt));
+  return '<div class="crm-related-list">' + (client ? '<button class="crm-relation"' + actionData('detail', 'clients', client.id) + '><strong>' + escapeHTML(client.name) + '</strong><small>' + escapeHTML(client.code + ' / ' + client.industry + ' / ' + (client.contactPerson || 'PIC belum dilengkapi')) + '</small></button>' : '') + '<div class="crm-section-head"><h3>Collections & Communications (' + logs.length + ')</h3><button class="text-button" data-action="case-collection" data-id="' + escapeHTML(c.id) + '">+ Catat aktivitas</button></div>' + logs.slice(0, 3).map(l => '<button class="crm-related-row"' + actionData('detail', 'collections', l.id) + '><span><strong>' + escapeHTML(l.activity) + '</strong><small>' + escapeHTML(l.outcome) + '</small></span><span>' + escapeHTML(dateLabel(l.activityDate)) + '</span></button>').join('') + '<button class="text-button" data-action="view-case-collections" data-id="' + escapeHTML(c.id) + '">Lihat semua log &nearr;</button></div>';
+}
+function openCrmDetail(entity, id) {
+  const r = recordById(entity, id); if (!r) return;
+  let items = [], extra = '';
+  if (entity === 'clients') {
+    items = [['Kode Perusahaan Klien', r.code], ['Nama Perusahaan / Pemberi Kuasa', r.name], ['Industri', r.industry], ['Contact Person', r.contactPerson], ['Phone / WhatsApp', r.phone], ['Email', r.email], ['Kabupaten/Kota', r.regency], ['Kecamatan', r.district], ['Kelurahan / Desa', r.village], ['Alamat Domisili / Kantor', r.address]];
+    const cases = ARMS.db.cases.filter(c => c.clientId === r.id);
+    extra = '<div class="crm-related-list"><div class="crm-section-head"><h3>Portofolio kasus (' + cases.length + ')</h3><button class="text-button" data-action="client-case" data-id="' + escapeHTML(r.id) + '">+ New Recovery Case</button></div>' + cases.slice(0, 5).map(c => '<button class="crm-related-row"' + actionData('detail', 'cases', c.id) + '><span><strong>' + escapeHTML(c.number) + '</strong><small>' + escapeHTML((customerFor(c) || {}).name || '-') + '</small></span><span>' + rupiah(c.principal) + '</span></button>').join('') + (!cases.length ? '<p class="form-note">Belum ada kasus yang terhubung.</p>' : '') + '</div>';
+  } else {
+    const c = recordById('cases', r.caseId), receipt = crmReceipt(r.id);
+    items = [['Kasus', (c || {}).number], ['Debitur', (customerFor(c) || {}).name], ['Aktivitas / Kanal', r.activity], ['Tanggal aktivitas', dateLabel(r.activityDate)], ['Petugas / PIC', (recordById('personnel', r.personnelId) || {}).name], ['Pihak dihubungi', r.contactedParty], ['Outcome', r.outcome], ['Next Action', dateLabel(r.nextActionDate)], ['Ada pembayaran', r.hasPayment ? receipt ? 'Ya, kuitansi tercatat' : 'Ya, belum dicatat' : 'Tidak'], ['No. kuitansi', receipt ? receipt.number : '-']];
+    extra = '<div class="crm-report-text"><h3>Laporan Rinci Pembicaraan & Situasi Lapangan</h3><p>' + escapeHTML(r.report) + '</p><h3>Tindak Lanjut / Action Plan</h3><p>' + escapeHTML(r.actionPlan || 'Belum ada tindak lanjut tambahan.') + '</p></div><div class="detail-actions"><button class="btn"' + actionData('detail', 'cases', r.caseId) + '>Buka Kasus</button><button class="btn"' + actionData('case-letter', 'cases', r.caseId) + '>Surat Tugas</button>' + (r.hasPayment && (receipt || (c && !caseSuccessfulClient(c))) ? '<button class="btn primary" data-action="collection-payment" data-id="' + escapeHTML(r.id) + '">' + (receipt ? 'Lihat Pembayaran' : 'Catat Pembayaran') + '</button>' : '') + (['Eksekusi Unit', 'Penarikan aset jaminan'].includes(r.activity) ? '<button class="btn" data-action="collection-execution" data-id="' + escapeHTML(r.id) + '">Kelola Tarik Unit</button>' : '') + '</div>';
+  }
+  openDialog(r.name || r.number, entity === 'clients' ? 'Master klien dan portofolio kasus terkait.' : 'Riwayat interaksi, hasil tindakan, dan tindak lanjut.', '<div class="dialog-body"><dl class="detail-grid">' + items.map(([label, value]) => '<div><dt>' + escapeHTML(label) + '</dt><dd>' + escapeHTML(value || '-') + '</dd></div>').join('') + '</dl>' + extra + '</div><footer>' + (ARMS.db.currentUser.role !== 'Collector' ? '<button class="btn danger"' + actionData('delete', entity, id) + '>Hapus</button>' : '<span></span>') + '<button class="btn primary"' + actionData('edit', entity, id) + '>Edit data</button></footer>', entity === 'collections');
+}
+function recordCollectionPayment(id) {
+  const log = recordById('collections', id), receipt = crmReceipt(id);
+  if (!log || !log.hasPayment) return toast('Log belum ditandai memiliki pembayaran.', true);
+  if (receipt) return openDetail('payments', receipt.id);
+  openForm('payments', null, { caseId: log.caseId, collectionLogId: log.id, date: log.activityDate });
+}
+function crmActions(button) {
+  const action = button.dataset.action, id = button.dataset.id;
+  if (action === 'client-case') { openForm('cases', null, { clientId: id }); return true; }
+  if (action === 'case-collection') { openForm('collections', null, { caseId: id, personnelId: (assigneeFor(id) || {}).id || '' }); return true; }
+  if (action === 'collection-payment') { recordCollectionPayment(id); return true; }
+  if (action === 'view-case-collections') { closeDialog(); ARMS.filters.collections = Object.assign({}, ARMS.filters.collections || {}, { caseId: id }); renderCollectionsModule(); navigate('collections'); return true; }
+  if (action === 'clear-collection-case') { ARMS.filters.collections = Object.assign({}, ARMS.filters.collections || {}, { caseId: '' }); renderCollectionsModule(); return true; }
+  if (action === 'collection-tab') { ARMS.collectionTab = button.dataset.tab; ARMS.pages.collections = 1; renderCollectionsModule(); return true; }
+  if (action === 'collection-execution') {
+    const log = recordById('collections', id); if (!log) return true;
+    const execution = ARMS.db.executions.find(e => e.caseId === log.caseId && e.status !== 'Dibatalkan');
+    if (execution) openDetail('executions', execution.id);
+    else { const c = recordById('cases', log.caseId); openForm('executions', null, { caseId: log.caseId, personnelId: log.personnelId, location: (customerFor(c) || {}).address || '', feeBase: n((c || {}).principal) }); }
+    return true;
+  }
+  return false;
+}
+</script>

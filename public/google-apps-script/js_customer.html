@@ -1,0 +1,236 @@
+<script>
+const CUSTOMER_REGION_BASE = 'https://www.emsifa.com/api-wilayah-indonesia/v2';
+const CUSTOMER_REGION_CACHE = new Map();
+const CUSTOMER_DEFAULT_CITIES = [
+  { id: '31.01', name: 'Kabupaten Administrasi Kepulauan Seribu' },
+  { id: '31.71', name: 'Kota Administrasi Jakarta Pusat' },
+  { id: '31.72', name: 'Kota Administrasi Jakarta Utara' },
+  { id: '31.73', name: 'Kota Administrasi Jakarta Barat' },
+  { id: '31.74', name: 'Kota Administrasi Jakarta Selatan' },
+  { id: '31.75', name: 'Kota Administrasi Jakarta Timur' }
+];
+const CUSTOMER_DEFAULT_DISTRICTS = {
+  '31.74': ['Tebet', 'Setiabudi', 'Mampang Prapatan', 'Pasar Minggu', 'Kebayoran Lama', 'Cilandak', 'Kebayoran Baru', 'Pancoran', 'Jagakarsa', 'Pesanggrahan'].map((name, i) => ({ id: '31.74.' + String(i + 1).padStart(2, '0'), name }))
+};
+let customerCitiesPromise;
+function fetchCustomerRegions(path) {
+  if (CUSTOMER_REGION_CACHE.has(path)) return CUSTOMER_REGION_CACHE.get(path);
+  const promise = (async () => {
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(CUSTOMER_REGION_BASE + '/' + path + '.json', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+      if (!response.ok) throw new Error('Referensi wilayah tidak tersedia.');
+      const result = await response.json();
+      if (!Array.isArray(result.data)) throw new Error('Format referensi wilayah tidak valid.');
+      return result.data.filter(row => row && row.id && typeof row.name === 'string').map(row => ({ id: String(row.id), name: row.name }));
+    } finally { clearTimeout(timer); }
+  })();
+  CUSTOMER_REGION_CACHE.set(path, promise);
+  promise.catch(() => CUSTOMER_REGION_CACHE.delete(path));
+  return promise;
+}
+function fetchCustomerCities() {
+  if (!customerCitiesPromise) {
+    customerCitiesPromise = (async () => {
+      const provinces = await fetchCustomerRegions('provinces');
+      const results = await Promise.allSettled(provinces.map(p => fetchCustomerRegions('regencies/' + p.id)));
+      const loaded = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+      if (!loaded.length) throw new Error('Daftar wilayah belum tersedia.');
+      const rows = [...new Map([...CUSTOMER_DEFAULT_CITIES, ...loaded].map(row => [row.id, row])).values()].sort((a, b) => a.name.localeCompare(b.name, 'id'));
+      const partial = results.some(result => result.status === 'rejected');
+      if (partial) customerCitiesPromise = undefined;
+      return { rows, partial };
+    })();
+    customerCitiesPromise.catch(() => { customerCitiesPromise = undefined; });
+  }
+  return customerCitiesPromise;
+}
+
+function customerFieldsHTML(data) {
+  const linked = ARMS.db.cases.find(c => c.customerId === ARMS.form.id);
+  ARMS.form.customerState = {
+    manual: Boolean(data.regency && !data.regencyId), regencyId: data.regencyId || '', regency: data.regency || '',
+    districtId: data.districtId || '', district: data.district || '', cities: CUSTOMER_DEFAULT_CITIES,
+    districts: CUSTOMER_DEFAULT_DISTRICTS[data.regencyId] || [], citiesLoading: false, districtsLoading: false,
+    cityError: '', districtError: '', uploads: {}, pending: 0, step: 0
+  };
+  return '<div class="customer-fields"><div data-customer-step="0"><div class="form-grid">' +
+    field('No. Kontrak', 'contract', data.contract || (linked || {}).contract || '', { required: true, placeholder: 'Masukkan nomor kontrak', maxLength: 100 }) +
+    field('Nama', 'name', data.name, { required: true, placeholder: 'Nama lengkap debitur', maxLength: 150 }) +
+    '</div><div class="customer-section"><h3>Alamat Domisili Debitur</h3><button type="button" class="text-button" data-action="toggle-customer-region" id="region-mode-label">' + (ARMS.form.customerState.manual ? 'Pilih dari daftar' : 'Isi wilayah manual') + '</button></div>' +
+    '<div id="customer-region-controls" class="form-grid"></div><div id="customer-region-feedback" class="region-feedback" role="status"></div><div class="form-grid customer-address">' +
+    field('Kelurahan / Desa', 'village', data.village, { required: true, full: true, placeholder: 'Nama kelurahan atau desa' }) +
+    field('Alamat lengkap (jalan, nomor rumah, RT/RW, kode pos)', 'streetAddress', data.streetAddress || data.address || '', { required: true, full: true, textarea: true }) +
+    '</div></div><div data-customer-step="1" hidden><div class="form-grid">' + field('Tanggal Jatuh Tempo', 'dueDate', data.dueDate, { type: 'date', required: true, hint: 'mm/dd/yyyy' }) +
+    field('Nomor Handphone', 'phone', data.phone, { type: 'tel', required: true, pattern: '[+0-9\\s\\(\\)\\-]{8,20}', maxLength: 20, placeholder: '08xxxxxxxxxx' }) + '</div>' +
+    '<div class="customer-section"><h3>Angsuran</h3></div><div class="form-grid customer-finance-grid">' +
+    field('Angsuran', 'installment', data.installment || 0, { type: 'number', required: true, hint: 'Nominal angsuran dalam rupiah.' }) +
+    field('Total Angsuran (Rp)', 'total', rupiah(n(data.installment) + n(data.penalty)), { disabled: true, hint: 'Otomatis: angsuran + denda.' }) +
+    field('DENDA', 'penalty', data.penalty || 0, { type: 'number' }) + '</div>' +
+    '<div class="customer-section"><h3>Spesifikasi Kendaraan</h3></div><div class="form-grid">' +
+    field('Merk/Type', 'brandType', data.brandType || data.vehicle || '', { placeholder: 'Contoh: Honda / Vario 160', maxLength: 150 }) +
+    field('Nomor Polisi', 'plate', data.plate, { placeholder: 'Contoh: B 1234 ABC', maxLength: 20 }) + '</div></div><div data-customer-step="2" hidden><p class="form-note">Lampirkan dokumen pendukung. Foto dapat dilengkapi nanti.</p><div class="form-grid customer-photos">' + customerPhotoHTML('ktp', data) + customerPhotoHTML('stnk', data) + '</div><p class="form-note">JPG, PNG, atau WebP. Maksimal 2 MB per file. Foto disimpan di Google Drive terbatas saat debitur disimpan.</p><div id="customer-photo-error" class="inline-error" hidden></div><div class="customer-save-summary" id="customer-save-summary"></div></div></div>';
+}
+function customerStepsHTML() {
+  return '<nav class="customer-step-nav" aria-label="Bagian form debitur">' + ['Debitur & domisili', 'Angsuran & kendaraan', 'Dokumen'].map((label, i) => '<button type="button" data-action="customer-step" data-step="' + i + '" class="' + (i === 0 ? 'active' : '') + '"><span>' + (i + 1) + '</span>' + label + '</button>').join('') + '</nav>';
+}
+function customerStepsFooter() {
+  return '<footer><span id="customer-step-count" class="step-counter">Bagian 1 dari 3</span><div><button type="button" class="btn" id="customer-step-back" data-action="customer-back">Batal</button><button type="submit" class="btn primary" id="customer-step-next">Lanjutkan</button></div></footer>';
+}
+function setCustomerStep(next, validate) {
+  const state = ARMS.form.customerState;
+  if (state.pending || ARMS.locked) return false;
+  if (validate && next > state.step) {
+    const invalid = $$('#entity-form [data-customer-step="' + state.step + '"] input, #entity-form [data-customer-step="' + state.step + '"] select, #entity-form [data-customer-step="' + state.step + '"] textarea').find(input => !input.checkValidity());
+    if (invalid) { invalid.reportValidity(); return false; }
+  }
+  state.step = Math.min(2, Math.max(0, next));
+  $$('#entity-form [data-customer-step]').forEach(section => { section.hidden = n(section.dataset.customerStep) !== state.step; });
+  $$('#entity-form .customer-step-nav button').forEach(button => { button.classList.toggle('active', n(button.dataset.step) === state.step); });
+  $('#customer-step-count').textContent = 'Bagian ' + (state.step + 1) + ' dari 3';
+  $('#customer-step-back').textContent = state.step ? 'Kembali' : 'Batal';
+  $('#customer-step-next').textContent = state.step === 2 ? 'Simpan Debitur' : 'Lanjutkan';
+  $('#customer-save-summary').innerHTML = '<span>Debitur</span><strong>' + escapeHTML(formControl('name').value) + '</strong><span>No. kontrak</span><strong>' + escapeHTML(formControl('contract').value) + '</strong><span>Total angsuran</span><strong>' + rupiah(n(formControl('installment').value) + n(formControl('penalty').value)) + '</strong>';
+  $('#entity-form .dialog-body').scrollTop = 0;
+  return true;
+}
+function canSubmitCustomer() {
+  const state = ARMS.form.customerState;
+  if (state.pending) return false;
+  if (state.step < 2) { setCustomerStep(state.step + 1, true); return false; }
+  const invalid = $$('#entity-form input, #entity-form select, #entity-form textarea').find(input => !input.checkValidity());
+  if (invalid) { const panel = invalid.closest('[data-customer-step]'); setCustomerStep(panel ? n(panel.dataset.customerStep) : 0, false); setTimeout(() => invalid.reportValidity(), 40); return false; }
+  return true;
+}
+function customerPhotoHTML(kind, data) {
+  const label = 'Foto ' + kind.toUpperCase(), name = data[kind + 'PhotoName'] || (data[kind + 'Photo'] ? kind.toUpperCase() + ' tersimpan' : '');
+  return '<div class="photo-field"><span>' + label + '</span><label class="photo-upload' + (name ? ' has-photo' : '') + '" id="photo-box-' + kind + '"><input type="file" accept="image/jpeg,image/png,image/webp" data-customer-photo="' + kind + '" aria-label="Upload ' + label + '">' + icon('file') + '<span><strong id="photo-name-' + kind + '">' + escapeHTML(name || 'Upload ' + label) + '</strong><small id="photo-hint-' + kind + '">' + (name ? 'Klik untuk mengganti foto' : 'JPG, PNG, WebP. Maks. 2 MB') + '</small></span></label><button type="button" class="text-button photo-remove" data-action="remove-customer-photo" data-kind="' + kind + '" id="remove-photo-' + kind + '"' + (!name ? ' hidden' : '') + '>' + icon('close') + 'Hapus foto</button></div>';
+}
+function renderCustomerRegionControls() {
+  const state = ARMS.form && ARMS.form.customerState;
+  if (!state || !$('#customer-region-controls')) return;
+  const focused = document.activeElement;
+  const activeName = focused && focused.closest('#customer-region-controls') ? focused.name : '';
+  const caret = focused && 'selectionStart' in focused ? focused.selectionStart : null;
+  if (state.manual) {
+    $('#customer-region-controls').innerHTML = field('Kabupaten/Kota', 'regency', state.regency, { required: true, placeholder: 'Nama kabupaten/kota' }) + field('Kecamatan', 'district', state.district, { required: true, placeholder: 'Nama kecamatan' });
+  } else {
+    const cityOptions = [{ value: '', label: 'Pilih Kabupaten/Kota' }].concat(state.cities.map(r => ({ value: r.id, label: r.name })));
+    const districtOptions = [{ value: '', label: state.districtsLoading && !state.districts.length ? 'Memuat kecamatan...' : 'Pilih Kecamatan' }].concat(state.districts.map(r => ({ value: r.id, label: r.name })));
+    if (state.regencyId && !state.cities.some(r => r.id === state.regencyId)) cityOptions.push({ value: state.regencyId, label: state.regency });
+    if (state.districtId && !state.districts.some(r => r.id === state.districtId)) districtOptions.push({ value: state.districtId, label: state.district });
+    $('#customer-region-controls').innerHTML = field('Kabupaten/Kota', 'regencyId', state.regencyId, { required: true, options: cityOptions }) + field('Kecamatan', 'districtId', state.districtId, { required: true, disabled: !state.regencyId || (state.districtsLoading && !state.districts.length), options: districtOptions });
+  }
+  $('#region-mode-label').textContent = state.manual ? 'Pilih dari daftar' : 'Isi wilayah manual';
+  const message = state.citiesLoading ? 'Memuat daftar kabupaten/kota Indonesia...' : state.districtError || state.cityError;
+  $('#customer-region-feedback').innerHTML = !state.manual && message ? '<span>' + escapeHTML(message) + '</span>' + (!state.citiesLoading ? '<button type="button" class="text-button" data-action="retry-customer-region">Coba lagi</button>' : '') : '';
+  if (activeName) {
+    const replacement = formControl(activeName);
+    if (replacement) { replacement.focus(); if (caret !== null && replacement.setSelectionRange) replacement.setSelectionRange(caret, caret); }
+  }
+}
+async function loadCustomerRegions() {
+  const context = ARMS.form; if (!context || !context.customerState) return;
+  const state = context.customerState;
+  state.citiesLoading = true; state.cityError = ''; renderCustomerRegionControls();
+  try { const result = await fetchCustomerCities(); if (ARMS.form === context) { state.cities = result.rows; state.cityError = result.partial ? 'Sebagian wilayah belum dimuat. Gunakan input manual jika tidak ditemukan.' : ''; } }
+  catch (error) { if (ARMS.form === context) state.cityError = 'Daftar nasional belum tersedia. Gunakan input manual untuk wilayah lainnya.'; }
+  finally { state.citiesLoading = false; if (ARMS.form === context) renderCustomerRegionControls(); }
+}
+async function loadCustomerDistricts() {
+  const context = ARMS.form; if (!context || !context.customerState) return;
+  const state = context.customerState, selectedId = state.regencyId;
+  state.districtError = '';
+  state.districts = CUSTOMER_DEFAULT_DISTRICTS[selectedId] || [];
+  if (!selectedId || state.manual) { state.districtsLoading = false; renderCustomerRegionControls(); return; }
+  state.districtsLoading = true; renderCustomerRegionControls();
+  try { const rows = await fetchCustomerRegions('districts/' + encodeURIComponent(selectedId)); if (ARMS.form === context && state.regencyId === selectedId) state.districts = rows; }
+  catch (error) { if (ARMS.form === context && state.regencyId === selectedId) state.districtError = 'Kecamatan belum dimuat. Gunakan input manual atau coba lagi.'; }
+  finally { if (ARMS.form === context && state.regencyId === selectedId) { state.districtsLoading = false; renderCustomerRegionControls(); } }
+}
+function toggleCustomerRegion() {
+  const state = ARMS.form.customerState;
+  if (state.manual) {
+    state.regencyId = ''; state.regency = ''; state.districtId = ''; state.district = ''; state.districts = [];
+    formControl('village').value = '';
+  } else { state.regencyId = ''; state.districtId = ''; }
+  state.manual = !state.manual; renderCustomerRegionControls();
+}
+function customerRegionChanged(input) {
+  const state = ARMS.form.customerState;
+  if (input.name === 'regencyId') {
+    state.regencyId = input.value; state.regency = input.value ? input.options[input.selectedIndex].textContent : '';
+    state.districtId = ''; state.district = ''; formControl('village').value = ''; loadCustomerDistricts();
+  }
+  if (input.name === 'districtId') { state.districtId = input.value; state.district = input.value ? input.options[input.selectedIndex].textContent : ''; formControl('village').value = ''; }
+  if (input.name === 'regency' || input.name === 'district') state[input.name] = input.value;
+}
+
+async function readCustomerPhoto(file) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Gunakan foto JPG, PNG, atau WebP.');
+  if (!file.size || file.size > 2 * 1024 * 1024) throw new Error('Ukuran foto maksimal 2 MB per file.');
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error('Foto tidak dapat dibaca. Pilih ulang file.')); reader.readAsDataURL(file);
+  });
+  await new Promise((resolve, reject) => { const image = new Image(); image.onload = () => { image.src = ''; resolve(); }; image.onerror = () => reject(new Error('File bukan gambar yang valid atau sudah rusak.')); image.src = dataUrl; });
+  return { name: file.name.slice(0, 150), mimeType: file.type, dataUrl };
+}
+async function selectCustomerPhoto(input) {
+  const context = ARMS.form, file = input.files && input.files[0], kind = input.dataset.customerPhoto;
+  input.value = '';
+  if (!context || !context.customerState || !file) return;
+  const state = context.customerState;
+  state.pending++; input.disabled = true;
+  $('#entity-form button[type="submit"]').disabled = true;
+  $('#photo-hint-' + kind).textContent = 'Membaca foto...';
+  $('#remove-photo-' + kind).disabled = true;
+  $('#customer-photo-error').hidden = true;
+  try {
+    const upload = await readCustomerPhoto(file);
+    if (ARMS.form !== context) return;
+    state.uploads[kind] = upload;
+    $('#photo-name-' + kind).textContent = upload.name;
+    $('#photo-box-' + kind).classList.add('has-photo');
+    $('#remove-photo-' + kind).hidden = false;
+  } catch (error) { if (ARMS.form === context) { $('#customer-photo-error').textContent = error.message; $('#customer-photo-error').hidden = false; } }
+  finally {
+    state.pending--;
+    if (ARMS.form === context) {
+      input.disabled = false; $('#remove-photo-' + kind).disabled = false;
+      $('#photo-hint-' + kind).textContent = 'JPG, PNG, WebP. Maks. 2 MB';
+      $('#entity-form button[type="submit"]').disabled = state.pending > 0 || ARMS.locked || ARMS.requests > 0;
+    }
+  }
+}
+function removeCustomerPhoto(kind) {
+  const state = ARMS.form.customerState;
+  if (state.pending) return;
+  state.uploads[kind] = null;
+  $('#photo-name-' + kind).textContent = 'Upload Foto ' + kind.toUpperCase();
+  $('#photo-box-' + kind).classList.remove('has-photo');
+  $('#remove-photo-' + kind).hidden = true;
+}
+function customerPayload(data) {
+  const state = ARMS.form.customerState;
+  if (state.pending) throw new Error('Tunggu hingga foto selesai dibaca.');
+  if (!state.manual && (!data.regencyId || !data.districtId)) throw new Error('Pilih kabupaten/kota dan kecamatan, atau gunakan input wilayah manual.');
+  Object.assign(data, {
+    regencyId: state.manual ? '' : data.regencyId, districtId: state.manual ? '' : data.districtId,
+    regency: state.manual ? data.regency : state.regency, district: state.manual ? data.district : state.district,
+    total: n(data.installment) + n(data.penalty), plate: String(data.plate || '').toUpperCase()
+  });
+  data.address = [data.streetAddress, data.village, data.district, data.regency].filter(Boolean).join(', ');
+  data.vehicle = [data.brandType, data.plate].filter(Boolean).join(' / ');
+  ['ktp', 'stnk'].forEach(kind => { if (Object.prototype.hasOwnProperty.call(state.uploads, kind)) data[kind + 'Upload'] = state.uploads[kind]; });
+  return data;
+}
+async function downloadCustomerDocument(id, kind) {
+  try {
+    const photo = await rpc('getCustomerDocument', id, kind);
+    if (!/^data:image\/(jpeg|png|webp);base64,/.test(photo.dataUrl)) throw new Error('Format dokumen tidak valid.');
+    const response = await fetch(photo.dataUrl); const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = photo.name; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (error) { toast(error.message, true); }
+}
+</script>
