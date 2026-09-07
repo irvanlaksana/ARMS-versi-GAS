@@ -136,6 +136,23 @@ export default function App() {
     return [...clients, ...customers, ...cases, ...letters];
   }, [db, search]);
   const info = moduleInfo[module];
+
+function openGoogleForm(record?: RecordData) {
+  const formId = 'YOUR_FORM_ID'; // Ganti dengan ID form Google Anda
+  const entryName = 'entry.1';
+  const entryContract = 'entry.2';
+  const entryPhone = 'entry.3';
+  const name = record?.name ? encodeURIComponent(record.name) : '';
+  const contract = record?.contract ? encodeURIComponent(record.contract) : '';
+  const phone = record?.phone ? encodeURIComponent(record.phone) : '';
+  const url = new URL('https://docs.google.com/forms/d/' + formId + '/formResponse');
+  url.searchParams.set(entryName, name);
+  url.searchParams.set(entryContract, contract);
+  url.searchParams.set(entryPhone, phone);
+  window.open(url.toString(), '_blank');
+}
+
+const activeCount = db.cases.filter(c => c.status !== 'Selesai').length;
   const activeCount = db.cases.filter(c => c.status !== 'Selesai').length;
   const latestPayments = [...db.payments].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
   const periodKeys = [...new Set([new Date().toISOString().slice(0, 7), ...db.payments.map(p => p.date.slice(0, 7)), period])].sort().reverse();
@@ -159,7 +176,19 @@ export default function App() {
       <div className="notifications-wrap" data-popover><button className={`icon-button notification-button ${notificationsOpen ? 'selected' : ''}`} onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileOpen(false); }} aria-label="Buka notifikasi" aria-expanded={notificationsOpen}><Bell size={19}/>{!notificationsRead && <i/>}</button>{notificationsOpen && <div className="notifications-popover"><div className="popover-heading"><h3>Notifikasi <span>{notificationsRead ? 0 : latestPayments.length}</span></h3><button onClick={() => setNotificationsRead(true)}>Tandai dibaca</button></div>{latestPayments.map((p, i) => <button className="notification-item" key={p.id} onClick={() => { openDetail('payments', p); setNotificationsRead(true); }}><span className="notification-type-icon"><Wallet size={17}/></span><span><strong>Pembayaran diterima</strong><p>{currency(p.amount)} dari {getCustomer(db, db.cases.find(c => c.id === p.caseId)?.customerId || '')?.name}</p><small>{p.date} / {i === 0 ? 'Transaksi terbaru' : 'Pembayaran terverifikasi'}</small></span>{!notificationsRead && <i/>}</button>)}{!latestPayments.length && <div className="search-hint">Belum ada notifikasi baru.</div>}<button className="popover-bottom-link" onClick={() => { navigate('payments'); setNotificationsOpen(false); }}>Lihat semua pembayaran<ArrowUpRight size={14}/></button></div>}</div>
       <span className="topbar-divider"/><div className="profile-wrap" data-popover><button className="profile-button" onClick={() => { setProfileOpen(!profileOpen); setNotificationsOpen(false); }} aria-expanded={profileOpen}><span className="profile-avatar">AP</span><span className="profile-details"><strong>{db.settings.signer}</strong><small>{db.currentUser?.role || 'Administrator'}</small></span><ChevronDown size={13}/></button>{profileOpen && <div className="profile-popover"><div><strong>{db.settings.signer}</strong><small>{db.currentUser?.username || db.users[0]?.username || 'admin@arms.agency'}</small></div><button onClick={() => navigate('settings')}><Settings2 size={15}/>Pengaturan akun</button><button onClick={() => { setHelpOpen(true); setProfileOpen(false); }}><CircleHelp size={15}/>Panduan ARMS</button><span><ShieldCheck size={14}/>{connected ? 'Identitas Google terverifikasi' : 'Sesi demonstrasi lokal'}</span></div>}</div>
     </div></header>
-    <main className={`main-content ${letterWorkspace && module === 'letters' ? 'is-letter-editor' : ''}`}><div className="page-heading no-print"><div><h1>{module === 'letters' && letterWorkspace ? letterWorkspace.letter ? 'Kelola Surat' : 'Buat Surat Baru' : info.title}</h1><p>{module === 'letters' && letterWorkspace ? 'Dokumen yang rapi. Penugasan yang jelas.' : info.subtitle}</p></div><div className="page-heading-actions">{(module === 'dashboard' || module === 'reports') && <div className="date-picker"><CalendarDays size={16}/><select aria-label="Pilih periode laporan" value={period} onChange={e => setPeriod(e.target.value)}>{periodKeys.map(key => { const date = new Date(`${key}-01T12:00:00`); const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(); return <option value={key} key={key}>1 - {last} {date.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</option>; })}</select><ChevronDown size={13}/></div>}{module === 'customers' && <button className="button button-secondary" onClick={() => setBulkOpen(true)}><Upload size={15}/>Import Bulk Debitor</button>}{info.action && !(module === 'letters' && letterWorkspace) && <button className="button button-primary heading-primary" onClick={primaryAction}>{module === 'reports' ? <ArrowDownToLine size={16}/> : <Plus size={17}/>} {info.action}</button>}</div></div>
+    <main className={`main-content ${letterWorkspace && module === 'letters' ? 'is-letter-editor' : ''}`}><div className="page-heading no-print"><div><h1>{module === 'letters' && letterWorkspace ? letterWorkspace.letter ? 'Kelola Surat' : 'Buat Surat Baru' : info.title}</h1><p>{module === 'letters' && letterWorkspace ? 'Dokumen yang rapi. Penugasan yang jelas.' : info.subtitle}</p></div><div className="page-heading-actions">{(module === 'dashboard' || module === 'reports') && <div className="date-picker"><CalendarDays size={16}/><select aria-label="Pilih periode laporan" value={period} onChange={e => setPeriod(e.target.value)}>{periodKeys.map(key => { const date = new Date(`${key}-01T12:00:00`); const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(); return <option value={key} key={key}>1 - {last} {date.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</option>; })}</select><ChevronDown size={13}/></div>}{module === 'customers' && <button className="button button-secondary" onClick={() => setBulkOpen(true)}><Upload size={15}/>Import Bulk Debitor</button>}
+<div className="customer-form-toolbar">
+  {detail?.entity === 'customers' && detail.record ? (
+    // Mode: Viewing existing debitor - show formulir with prefill data
+    <button className="button button-secondary" onClick={() => openGoogleForm(detail.record)} title="Buka formulir dengan data debitur"><Search size={14}/> Formulir</button>
+  ) : (
+    // Mode: List view or add new - show formulir tanpa prefill
+    <button className="button button-secondary" onClick={() => openGoogleForm(null)} title="Buka formulir tambah debitur baru"><Search size={14}/> Formulir</button>
+  )}
+  {/* Tombol tambah debitur baru via formulir Google - selalu terlihat di toolbar */}
+  <button className="button button-secondary button-small" onClick={() => openGoogleForm(null)} title="Tambah debitur via formulir Google"><Plus size={13}/> Add</button>
+</div>
+{info.action && !(module === 'letters' && letterWorkspace) && <button className="button button-primary heading-primary" onClick={primaryAction}>{module === 'reports' ? <ArrowDownToLine size={16}/> : <Plus size={17}/>} {info.action}</button>}</div></div>
       {bootError && <div className="boot-error no-print"><span>Workspace tidak dapat dimuat: {bootError}</span><button onClick={refresh} disabled={loading}><RefreshCw size={15}/>Coba lagi</button></div>}
       {loading && connected ? <div className="workspace-loading"><Spinner size={32}/><h2>Menghubungkan workspace...</h2><p>Mengambil data dari Google Sheets.</p></div> : <>
         <div hidden={module !== 'dashboard'} className="module-section no-print"><Dashboard/></div>

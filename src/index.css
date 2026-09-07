@@ -1166,6 +1166,17 @@ button.name-cell:hover strong { color: #bba6f4; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+.customer-form--compact .form-fieldset { padding: 6px 10px; margin-bottom: 8px; }
+.customer-form--compact .form-grid { gap: 6px; }
+.customer-form--compact Field { font-size: 0.85rem; margin-bottom: 6px; }
+.customer-form--compact Field label { font-size: 0.85rem; }
+.customer-form--compact input, .customer-form--compact select, .customer-form--compact textarea { font-size: 0.85rem; padding: 4px; }
+.customer-form--compact .modal-body { padding: 10px; }
+
+/* Toolbar tombol di halaman Debitur */
+.customer-form-toolbar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.customer-form-toolbar .button { font-size: 0.8rem; padding: 4px 8px; }
+
 @media print {
   @page { size: A4 portrait; margin: 0; }
   html, body, #root { width: 210mm !important; margin: 0 !important; padding: 0 !important; min-width: 0; background: white !important; color-scheme: light; }
@@ -1174,3 +1185,26 @@ button.name-cell:hover strong { color: #bba6f4; }
   .print-only { display: block !important; margin: 0 !important; padding: 0 !important; }
   .no-print, .module-section[hidden] { display: none !important; }
 }
+
+/* Preview thumbnail untuk dokumentasi customer di detail view */
+.customer-document-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.customer-document-preview img.doc-preview {
+  max-width: 80px;
+  max-height: 80px;
+  width: auto;
+  height: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.customer-document-preview .text-button.document-download {
+  margin-left: 8px;
+}
+

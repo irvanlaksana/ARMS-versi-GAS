@@ -86,7 +86,7 @@ export function CustomerForm({ record, defaults, busy, error, onClose, onSubmit 
     }
     setStep(next); formRef.current?.querySelector('.modal-body')?.scrollTo({ top: 0 });
   }
-  return <Modal title={`${record ? 'Edit' : 'Tambah'} Debitur`} subtitle="Tiga bagian ringkas. Semua data tetap tersimpan saat berpindah bagian." onClose={() => !saving && onClose()} wide className="customer-modal customer-modal--steps">
+  return <Modal title={`${record ? 'Edit' : 'Tambah'} Debitur`} subtitle="Tiga bagian ringkas. Semua data tetap tersimpan saat berpindah bagian." onClose={() => !saving && onClose()} wide className="customer-modal customer-modal--steps customer-form--compact">
     <form ref={formRef} onSubmit={submit} noValidate><fieldset disabled={busy} className="form-fieldset">
       <nav className="customer-step-nav" aria-label="Bagian form debitur">{stepLabels.map((label, index) => <button key={label} type="button" className={step === index ? 'active' : ''} onClick={() => changeStep(index)} aria-current={step === index ? 'step' : undefined}><span>{index < step ? <Check size={12}/> : index + 1}</span>{label}</button>)}</nav>
       <div className="modal-body customer-form-body">
@@ -134,10 +134,12 @@ export function CustomerForm({ record, defaults, busy, error, onClose, onSubmit 
 export function PhotoPicker({ label, upload, existingName, loading, disabled, onSelect, onRemove }: { label: string; upload?: PhotoUpload | null; existingName: string; loading: boolean; disabled: boolean; onSelect: (file: File) => void; onRemove: () => void }) {
   const inputId = useId();
   const attached = upload ? upload.name : upload === null ? '' : existingName;
+  const photoUrl = upload?.dataUrl || null;
   return <div className="photo-field"><span className="field-label">{label}</span><label className={`photo-upload ${attached ? 'has-photo' : ''} ${loading ? 'is-loading' : ''}`} htmlFor={inputId}>
     <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" aria-label={`Upload ${label}`} disabled={disabled || loading} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) onSelect(file); }}/>
     <span className="photo-upload-icon">{loading ? <Spinner size={20}/> : attached ? <FileImage size={21}/> : <Upload size={21}/>}</span>
+    {photoUrl && <img src={photoUrl} alt={label} className="photo-preview" />}
     <span><strong>{loading ? 'Membaca foto...' : attached || `Upload ${label}`}</strong><small>{attached ? 'Klik untuk mengganti foto' : 'JPG, PNG, WebP. Maks. 2 MB'}</small></span>
     {attached && !loading && <Check className="photo-check" size={15}/>}
-  </label>{attached && <button type="button" className="photo-remove text-button" onClick={onRemove} disabled={disabled || loading}><X size={12}/>Hapus foto</button>}</div>;
+  </label>{attached && <button type="button" className="photo-remove text-button" onClick={onRemove} disabled={disabled || loading}><X size={12}/>Hapus foto</button></div>;
 }
