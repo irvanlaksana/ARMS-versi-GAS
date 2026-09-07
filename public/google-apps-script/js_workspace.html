@@ -53,7 +53,7 @@ async function setWorkspaceImage(file, kind) {
       payload.logo = image ? image.dataUrl : ''; payload.logoName = image ? file.name : '';
     }
     ['feeRate', 'partnerRate', 'target', 'reportIntervalDays'].forEach(key => { if (key in payload) payload[key] = n(payload[key]); });
-    await rpc('updateSettings', payload); await reloadData();
+    ARMS.db.settings = await rpc('updateSettings', payload); renderAll();
     toast(file ? (kind === 'letterhead' ? 'Kop surat diperbarui.' : 'Logo perusahaan diperbarui.') : (kind === 'letterhead' ? 'Kop surat dihapus.' : 'Logo dihapus.'));
   } catch (error) { toast(error.message, true); }
   finally { ARMS.locked = false; }

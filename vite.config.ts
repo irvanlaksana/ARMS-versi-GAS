@@ -16,4 +16,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  server: {
+    // Preview sandbox (e2b.app) memakai host dinamis; izinkan agar live preview berfungsi.
+    allowedHosts: true,
+  },
 });

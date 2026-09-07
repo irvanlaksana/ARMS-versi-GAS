@@ -175,6 +175,11 @@ export const getAssignee = (db: Database, caseId: string) => {
   return db.personnel.find(p => p.id === letter?.personnelId);
 };
 export const getPaid = (db: Database, caseId: string, excludeId?: string) => db.payments.filter(p => p.caseId === caseId && p.id !== excludeId).reduce((sum, p) => sum + Number(p.amount), 0);
+export const getCustomerPaid = (db: Database, customerId: string) => db.cases.filter(c => c.customerId === customerId).reduce((sum, c) => sum + getPaid(db, c.id), 0);
+export const getCustomerOutstanding = (db: Database, customerId: string) => {
+  const customer = db.customers.find(c => c.id === customerId);
+  return Math.max(0, Number(customer?.total || 0) - getCustomerPaid(db, customerId));
+};
 export const isCaseSuccessful = (db: Database, c: Case) => c.status === 'Selesai' || (c.principal > 0 && getPaid(db, c.id) >= c.principal);
 export const canReceivePayment = (db: Database, c: Case) => !isCaseSuccessful(db, c) && c.principal - getPaid(db, c.id) > 0;
 export function syncPaymentStatus(db: Database) {

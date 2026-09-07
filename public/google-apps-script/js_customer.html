@@ -1,49 +1,27 @@
 <script>
-const CUSTOMER_REGION_BASE = 'https://www.emsifa.com/api-wilayah-indonesia/v2';
-const CUSTOMER_REGION_CACHE = new Map();
+// Form kabupaten/kota otomatis hanya menampilkan Banyumas, Purbalingga,
+// Cilacap, dan Banjarnegara beserta seluruh kecamatannya. Data statis:
+// cepat saat form dibuka dan tidak bergantung pada jaringan.
 const CUSTOMER_DEFAULT_CITIES = [
-  { id: '31.01', name: 'Kabupaten Administrasi Kepulauan Seribu' },
-  { id: '31.71', name: 'Kota Administrasi Jakarta Pusat' },
-  { id: '31.72', name: 'Kota Administrasi Jakarta Utara' },
-  { id: '31.73', name: 'Kota Administrasi Jakarta Barat' },
-  { id: '31.74', name: 'Kota Administrasi Jakarta Selatan' },
-  { id: '31.75', name: 'Kota Administrasi Jakarta Timur' }
+  { id: '33.02', name: 'Kabupaten Banyumas' },
+  { id: '33.03', name: 'Kabupaten Purbalingga' },
+  { id: '33.01', name: 'Kabupaten Cilacap' },
+  { id: '33.04', name: 'Kabupaten Banjarnegara' }
 ];
-const CUSTOMER_DEFAULT_DISTRICTS = {
-  '31.74': ['Tebet', 'Setiabudi', 'Mampang Prapatan', 'Pasar Minggu', 'Kebayoran Lama', 'Cilandak', 'Kebayoran Baru', 'Pancoran', 'Jagakarsa', 'Pesanggrahan'].map((name, i) => ({ id: '31.74.' + String(i + 1).padStart(2, '0'), name }))
+const CUSTOMER_REGION_DISTRICTS = {
+  '33.01': ['Kedungreja', 'Kesugihan', 'Adipala', 'Binangun', 'Nusawungu', 'Kroya', 'Maos', 'Jeruklegi', 'Kawunganten', 'Gandrungmangu', 'Sidareja', 'Karangpucung', 'Cimanggu', 'Majenang', 'Wanareja', 'Dayeuhluhur', 'Sampang', 'Cipari', 'Patimuan', 'Bantarsari', 'Cilacap Selatan', 'Cilacap Tengah', 'Cilacap Utara', 'Kampung Laut'],
+  '33.02': ['Lumbir', 'Wangon', 'Jatilawang', 'Rawalo', 'Kebasen', 'Kemranjen', 'Sumpiuh', 'Tambak', 'Somagede', 'Kalibagor', 'Banyumas', 'Patikraja', 'Purwojati', 'Ajibarang', 'Gumelar', 'Pekuncen', 'Cilongok', 'Karanglewas', 'Sokaraja', 'Kembaran', 'Sumbang', 'Baturraden', 'Kedungbanteng', 'Purwokerto Selatan', 'Purwokerto Barat', 'Purwokerto Timur', 'Purwokerto Utara'],
+  '33.03': ['Kemangkon', 'Bukateja', 'Kejobong', 'Kaligondang', 'Purbalingga', 'Kalimanah', 'Kutasari', 'Mrebet', 'Bobotsari', 'Karangreja', 'Karanganyar', 'Karangmoncol', 'Rembang', 'Bojongsari', 'Padamara', 'Pengadegan', 'Karangjambu', 'Kertanegara'],
+  '33.04': ['Susukan', 'Purworeja Klampok', 'Mandiraja', 'Purwanegara', 'Bawang', 'Banjarnegara', 'Sigaluh', 'Madukara', 'Banjarmangu', 'Wanadadi', 'Rakit', 'Punggelan', 'Karangkobar', 'Pagentan', 'Pejawaran', 'Batur', 'Wanayasa', 'Kalibening', 'Pandanarum', 'Pagedongan']
 };
-let customerCitiesPromise;
+const CUSTOMER_DEFAULT_DISTRICTS = Object.fromEntries(Object.entries(CUSTOMER_REGION_DISTRICTS).map(([id, names]) => [id, names.map((name, i) => ({ id: id + '.' + String(i + 1).padStart(2, '0'), name }))]));
 function fetchCustomerRegions(path) {
-  if (CUSTOMER_REGION_CACHE.has(path)) return CUSTOMER_REGION_CACHE.get(path);
-  const promise = (async () => {
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(CUSTOMER_REGION_BASE + '/' + path + '.json', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
-      if (!response.ok) throw new Error('Referensi wilayah tidak tersedia.');
-      const result = await response.json();
-      if (!Array.isArray(result.data)) throw new Error('Format referensi wilayah tidak valid.');
-      return result.data.filter(row => row && row.id && typeof row.name === 'string').map(row => ({ id: String(row.id), name: row.name }));
-    } finally { clearTimeout(timer); }
-  })();
-  CUSTOMER_REGION_CACHE.set(path, promise);
-  promise.catch(() => CUSTOMER_REGION_CACHE.delete(path));
-  return promise;
+  const match = String(path || '').match(/^districts\/(.+)$/);
+  const id = match ? decodeURIComponent(match[1]) : '';
+  return Promise.resolve(CUSTOMER_DEFAULT_DISTRICTS[id] || []);
 }
 function fetchCustomerCities() {
-  if (!customerCitiesPromise) {
-    customerCitiesPromise = (async () => {
-      const provinces = await fetchCustomerRegions('provinces');
-      const results = await Promise.allSettled(provinces.map(p => fetchCustomerRegions('regencies/' + p.id)));
-      const loaded = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-      if (!loaded.length) throw new Error('Daftar wilayah belum tersedia.');
-      const rows = [...new Map([...CUSTOMER_DEFAULT_CITIES, ...loaded].map(row => [row.id, row])).values()].sort((a, b) => a.name.localeCompare(b.name, 'id'));
-      const partial = results.some(result => result.status === 'rejected');
-      if (partial) customerCitiesPromise = undefined;
-      return { rows, partial };
-    })();
-    customerCitiesPromise.catch(() => { customerCitiesPromise = undefined; });
-  }
-  return customerCitiesPromise;
+  return Promise.resolve({ rows: CUSTOMER_DEFAULT_CITIES, partial: false });
 }
 
 function customerFieldsHTML(data) {
@@ -66,7 +44,9 @@ function customerFieldsHTML(data) {
     '<div class="customer-section"><h3>Angsuran</h3></div><div class="form-grid customer-finance-grid">' +
     field('Angsuran', 'installment', data.installment || 0, { type: 'number', required: true, hint: 'Nominal angsuran dalam rupiah.' }) +
     field('Total Angsuran (Rp)', 'total', rupiah(n(data.installment) + n(data.penalty)), { disabled: true, hint: 'Otomatis: angsuran + denda.' }) +
-    field('DENDA', 'penalty', data.penalty || 0, { type: 'number' }) + '</div>' +
+    field('DENDA', 'penalty', data.penalty || 0, { type: 'number' }) +
+    field('Sudah Dibayar (Rp)', 'paidInput', rupiah(customerPaidClient(ARMS.form.id)), { disabled: true, hint: 'Akumulasi pembayaran pada kasus debitur.' }) +
+    field('Total Angsuran Belum Dibayar (Rp)', 'remainingInput', rupiah(Math.max(0, n(data.installment) + n(data.penalty) - customerPaidClient(ARMS.form.id))), { disabled: true, hint: 'Otomatis: total angsuran - sudah dibayar.' }) + '</div>' +
     '<div class="customer-section"><h3>Spesifikasi Kendaraan</h3></div><div class="form-grid">' +
     field('Merk/Type', 'brandType', data.brandType || data.vehicle || '', { placeholder: 'Contoh: Honda / Vario 160', maxLength: 150 }) +
     field('Nomor Polisi', 'plate', data.plate, { placeholder: 'Contoh: B 1234 ABC', maxLength: 20 }) + '</div></div><div data-customer-step="2" hidden><p class="form-note">Lampirkan dokumen pendukung. Foto dapat dilengkapi nanti.</p><div class="form-grid customer-photos">' + customerPhotoHTML('ktp', data) + customerPhotoHTML('stnk', data) + '</div><p class="form-note">JPG, PNG, atau WebP. Maksimal 2 MB per file. Foto disimpan di Google Drive terbatas saat debitur disimpan.</p><div id="customer-photo-error" class="inline-error" hidden></div><div class="customer-save-summary" id="customer-save-summary"></div></div></div>';
@@ -90,7 +70,8 @@ function setCustomerStep(next, validate) {
   $('#customer-step-count').textContent = 'Bagian ' + (state.step + 1) + ' dari 3';
   $('#customer-step-back').textContent = state.step ? 'Kembali' : 'Batal';
   $('#customer-step-next').textContent = state.step === 2 ? 'Simpan Debitur' : 'Lanjutkan';
-  $('#customer-save-summary').innerHTML = '<span>Debitur</span><strong>' + escapeHTML(formControl('name').value) + '</strong><span>No. kontrak</span><strong>' + escapeHTML(formControl('contract').value) + '</strong><span>Total angsuran</span><strong>' + rupiah(n(formControl('installment').value) + n(formControl('penalty').value)) + '</strong>';
+  const summaryTotal = n(formControl('installment').value) + n(formControl('penalty').value);
+  $('#customer-save-summary').innerHTML = '<span>Debitur</span><strong>' + escapeHTML(formControl('name').value) + '</strong><span>No. kontrak</span><strong>' + escapeHTML(formControl('contract').value) + '</strong><span>Total angsuran</span><strong>' + rupiah(summaryTotal) + '</strong><span>Belum dibayar</span><strong>' + rupiah(Math.max(0, summaryTotal - customerPaidClient(ARMS.form.id))) + '</strong>';
   $('#entity-form .dialog-body').scrollTop = 0;
   return true;
 }
@@ -219,6 +200,7 @@ function customerPayload(data) {
     regency: state.manual ? data.regency : state.regency, district: state.manual ? data.district : state.district,
     total: n(data.installment) + n(data.penalty), plate: String(data.plate || '').toUpperCase()
   });
+  delete data.paidInput; delete data.remainingInput;
   data.address = [data.streetAddress, data.village, data.district, data.regency].filter(Boolean).join(', ');
   data.vehicle = [data.brandType, data.plate].filter(Boolean).join(' / ');
   ['ktp', 'stnk'].forEach(kind => { if (Object.prototype.hasOwnProperty.call(state.uploads, kind)) data[kind + 'Upload'] = state.uploads[kind]; });

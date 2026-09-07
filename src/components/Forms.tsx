@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowRight, Calculator, Check, CircleHelp, ExternalLink, FileText, LockKeyhole, Pencil, Plus, Save, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 import { useArms } from '../lib/context';
-import { calculatePayment, canReceivePayment, currency, customerProcess, formatDate, getAssignee, getCase, getCustomer, getPaid, isoToday, postedFee, type Case, type Customer, type Entity, type Letter, type ManualFee, type Payment, type Personnel, type RecordData, type SubmitOptions } from '../lib/data';
+import { calculatePayment, canReceivePayment, currency, customerProcess, formatDate, getAssignee, getCase, getCustomer, getCustomerOutstanding, getCustomerPaid, getPaid, isoToday, postedFee, type Case, type Customer, type Entity, type Letter, type ManualFee, type Payment, type Personnel, type RecordData, type SubmitOptions } from '../lib/data';
 import { Field, Modal, Spinner, StatusBadge } from './ui';
 import { CustomerForm } from './CustomerForm';
 import { CustomerDocument } from './CustomerDocument';
@@ -84,6 +84,7 @@ function BasicRecordDetail({ entity, record, onClose }: { entity: Entity; record
       { label: 'Alamat Domisili Debitur', value: c.address || '-' }, { label: 'Tanggal Jatuh Tempo', value: c.dueDate ? formatDate(c.dueDate) : '-' }, { label: 'Nomor Handphone', value: c.phone },
       { label: 'Foto KTP', value: <CustomerDocument customer={c} kind="ktp"/> }, { label: 'Foto STNK', value: <CustomerDocument customer={c} kind="stnk"/> },
       { label: 'Angsuran', value: currency(c.installment) }, { label: 'Total Angsuran (Rp)', value: <strong className="purple-text">{currency(c.total)}</strong> },
+      { label: 'Sudah Dibayar (Rp)', value: currency(getCustomerPaid(db, c.id)) }, { label: 'Total Angsuran Belum Dibayar (Rp)', value: <strong className="purple-text">{currency(getCustomerOutstanding(db, c.id))}</strong> },
       { label: 'DENDA', value: currency(c.penalty) }, { label: 'Merk/Type', value: c.brandType || c.vehicle || '-' }, { label: 'Nomor Polisi', value: c.plate || '-' },
     ];
   } else if (entity === 'cases') {
