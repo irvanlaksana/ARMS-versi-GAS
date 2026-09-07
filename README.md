@@ -30,9 +30,9 @@ Frontend GAS menggunakan HTML, Vanilla JavaScript, dan Tailwind CDN, tanpa React
 
 ## Pembaruan Form Debitur
 
-Form debitur mencakup nomor kontrak, nama, kabupaten/kota, kecamatan, kelurahan/desa, alamat lengkap, tanggal jatuh tempo, foto KTP/STNK, angsuran, total angsuran, denda, nomor handphone, merk/type, dan nomor polisi. Total tetap mengikuti perhitungan sebelumnya: angsuran + denda.
+Form debitur mencakup nomor kontrak, nama, kabupaten/kota, kecamatan, kelurahan/desa, alamat lengkap, tanggal jatuh tempo, foto KTP/STNK, angsuran, total angsuran, denda, nomor handphone, merk/type, dan nomor polisi. Total tetap mengikuti perhitungan sebelumnya: angsuran + denda. Ditambahkan pula **Sudah Dibayar** dan **Total Angsuran Belum Dibayar** yang dihitung otomatis dari pembayaran pada kasus debitur; nilai ini juga tampil pada tabel, detail, dan ekspor CSV debitur.
 
-Pilihan wilayah menggunakan referensi Emsifa v2 dengan input manual jika jaringan tidak tersedia. Foto JPG/PNG/WebP maksimal 2 MB disimpan ke IndexedDB pada demo dan ke folder privat Google Drive pada GAS. Cadangan JSON demo hanya berisi metadata; unduh foto secara terpisah dari detail debitur sebelum reset.
+Pilihan wilayah hanya menampilkan **Kabupaten Banyumas, Purbalingga, Cilacap, dan Banjarnegara** lengkap dengan seluruh kecamatannya. Data kecamatan disertakan langsung di aplikasi (statis), sehingga tidak bergantung pada jaringan dan form langsung siap digunakan; input manual tetap tersedia. Foto JPG/PNG/WebP maksimal 2 MB disimpan ke IndexedDB pada demo dan ke folder privat Google Drive pada GAS. Cadangan JSON demo hanya berisi metadata; unduh foto secara terpisah dari detail debitur sebelum reset.
 
 Form Tambah Debitur dibagi menjadi tiga bagian: Debitur & domisili, Angsuran & kendaraan, dan Dokumen. Tinggi dialog dibatasi viewport; header, navigasi, dan footer tetap terlihat. Seluruh parameter dipertahankan.
 
@@ -86,6 +86,13 @@ Dashboard menampilkan reminder untuk SK aktif: belum ada laporan, laporan perlu 
 Untuk memperbarui GAS lama: salin `Code.gs` baru, **hapus file `Crm.gs` dan `Workspace.gs`** dari proyek (isinya sudah digabung), tambahkan file HTML `js_proposal`, lalu perbarui `Index.html`, `js_main.html`, `js_workspace.html`, dan `css_main.html`. Struktur sheet diperbarui otomatis saat aplikasi dibuka (kolom `Foto SPPI`/`Nama File SPPI` pada Personnel dan sheet `Proposals` ditambahkan di ujung, data lama tidak dihapus); menjalankan `initializeDatabase()` sekali lagi tetap disarankan.
 
 Cadangan JSON/CSV hanya berisi metadata, bukan file PDF atau foto. Unduh dokumen sebelum reset demo atau menghapus data browser. Unggahan PDF tidak mengubah status penugasan atau menandai reminder laporan sebagai selesai.
+
+## Kecepatan Simpan
+
+- Mode demo tidak lagi menunda penyimpanan secara buatan (delay 450/350 ms dihapus); data langsung divalidasi dan ditulis ke penyimpanan lokal.
+- Mode GAS tidak memuat ulang seluruh workspace setelah setiap simpan. Record dari server langsung digabungkan ke state lokal dan relasi (principal case, status pembayaran, status kasus) disinkronkan ulang setempat; tombol **Muat Ulang Data** tetap tersedia untuk sinkronisasi penuh.
+- Backend `Code.gs` menyinkronkan hanya record yang berubah (kasus debitur terkait, satu kasus, atau satu pembayaran) alih-alih memindai seluruh tabel, dan menyingkat `SpreadsheetApp.flush()` menjadi sekali per penyimpanan.
+- Daftar kabupaten/kecamatan kini statis sehingga form wilayah terbuka tanpa menunggu jaringan.
 
 ## Validasi
 

@@ -67,6 +67,8 @@ const actionData = (action, entity, id) => ' data-action="' + escapeHTML(action)
 const recordById = (entity, id) => ARMS.db && ARMS.db[entity].find(record => record.id === id);
 const customerFor = c => c ? recordById('customers', c.customerId) : null;
 const paidFor = (id, exclude) => ARMS.db.payments.filter(p => p.caseId === id && p.id !== exclude).reduce((sum, p) => sum + n(p.amount), 0);
+const customerPaidClient = customerId => (ARMS.db.cases || []).filter(c => c.customerId === customerId).reduce((sum, c) => sum + paidFor(c.id), 0);
+const customerOutstandingClient = customerId => Math.max(0, n((recordById('customers', customerId) || {}).total) - customerPaidClient(customerId));
 const assigneeFor = id => { const c = recordById('cases', id); const assigned = c && recordById('personnel', c.personnelId); if (assigned) return assigned; const letter = ARMS.db.letters.filter(l => l.caseId === id && l.status === 'Aktif').slice(-1)[0]; return letter ? recordById('personnel', letter.personnelId) : null; };
 const badge = status => '<span class="badge ' + (['Aktif', 'Berhasil', 'Administrator', 'Pemasukan', 'Diterima'].includes(status) ? 'green' : ['Dalam Proses', 'Draft', 'Supervisor', 'Sebagian', 'Pembayaran sebagian', 'Tarik unit', 'Janji bayar', 'Belum dicatat', 'Terkirim'].includes(status) ? 'amber' : ['Dicabut', 'Dibatalkan', 'Pengeluaran', 'Ditolak'].includes(status) ? 'red' : '') + '">' + escapeHTML(status) + '</span>';
 const avatar = name => '<span class="avatar">' + escapeHTML((name || '-').split(' ').slice(0, 2).map(word => word[0]).join('').toUpperCase()) + '</span>';
@@ -105,6 +107,40 @@ async function reloadData() {
   renderAll();
   $('#boot-error').hidden = true;
   $('#connection-status').textContent = 'Database terhubung';
+}
+// Sinkronkan ulang status satu kasus berdasarkan pembayaran (cermin server).
+function syncLocalCase(caseId) {
+  const c = recordById('cases', caseId); if (!c) return;
+  const paid = paidFor(caseId), complete = n(c.principal) > 0 && paid >= n(c.principal);
+  if (complete && c.status !== 'Selesai') { c.status = 'Selesai'; c.paymentClosed = true; }
+  else if (!complete && c.paymentClosed) { c.status = 'Dalam Proses'; c.paymentClosed = false; }
+}
+// Terapkan hasil server ke workspace lokal tanpa getBootstrap agar simpan lebih cepat.
+function upsertSavedEntity(entity, saved, previous) {
+  if (!Array.isArray(ARMS.db[entity])) ARMS.db[entity] = [];
+  const rows = ARMS.db[entity], index = rows.findIndex(r => r.id === saved.id);
+  if (index >= 0) rows[index] = saved; else rows.unshift(saved);
+  if (entity === 'customers') {
+    ARMS.db.cases.forEach(c => {
+      if (c.customerId !== saved.id) return;
+      c.contract = saved.contract || c.contract; c.principal = n(saved.total); c.asset = [saved.brandType, saved.plate].filter(Boolean).join(' / ') || saved.vehicle;
+      syncLocalCase(c.id);
+    });
+  }
+  if (entity === 'collections') { const c = recordById('cases', saved.caseId); if (c && c.status === 'Aktif') c.status = 'Dalam Proses'; }
+  if (entity === 'payments') { syncLocalCase(saved.caseId); if (previous && previous.caseId !== saved.caseId) syncLocalCase(previous.caseId); }
+  if (entity === 'cases') syncLocalCase(saved.id);
+}
+function applyServerSaved(entity, saved, id) {
+  const previous = id ? recordById(entity, id) : null;
+  upsertSavedEntity(entity, saved, previous);
+  renderAll();
+}
+function applyServerDeleted(entity, id) {
+  const previous = recordById(entity, id);
+  ARMS.db[entity] = (ARMS.db[entity] || []).filter(r => r.id !== id);
+  if (previous && entity === 'payments') syncLocalCase(previous.caseId);
+  renderAll();
 }
 function toast(message, error) {
   const element = document.createElement('div'); element.className = 'toast' + (error ? ' error' : ''); element.textContent = message;
@@ -190,7 +226,7 @@ function tableHTML(entity, scope) {
   const headers = {
     clients: ['Client / Creditor', 'Industri', 'Contact Person', 'Kontak', 'Domisili / Kantor', 'Kasus'],
     collections: ['Aktivitas / Tanggal', 'Berkas / Debitur', 'Petugas / PIC', 'Outcome', 'Next Action', 'Pembayaran'],
-    customers: ['Debitur', 'No. Kontrak', 'Nomor Handphone', 'Jatuh tempo', 'Proses debitur', 'Total angsuran', 'Kendaraan'],
+    customers: ['Debitur', 'No. Kontrak', 'Nomor Handphone', 'Jatuh tempo', 'Total angsuran', 'Sisa angsuran', 'Proses debitur', 'Kendaraan'],
     cases: ['Kasus / Debitur', 'Klien', 'Outstanding', 'DPD', 'Petugas', 'Status'],
     letters: ['Nomor surat', 'Jenis', 'Kasus / Debitur', 'Petugas', 'Tanggal terbit', 'Status', 'PDF Surat'],
     proposals: ['Proposal / Nomor', 'Diajukan kepada', 'Tanggal', 'Halaman', 'Mitra DC', 'Status'],
@@ -207,7 +243,7 @@ function tableHTML(entity, scope) {
 function rowHTML(entity, r) {
   let cells = [];
   const detailButton = title => '<button class="row-link"' + actionData('detail', entity, r.id) + '>' + escapeHTML(title) + '</button>';
-  if (entity === 'customers') cells = [detailButton(r.name) + '<small>' + escapeHTML(r.regency || r.id) + '</small>', escapeHTML(r.contract || (ARMS.db.cases.find(c => c.customerId === r.id) || {}).contract || '-'), escapeHTML(r.phone), escapeHTML(dateLabel(r.dueDate)), processHTML(r.id), '<strong class="money">' + rupiah(r.total) + '</strong>', escapeHTML(r.brandType || r.vehicle || '-') + (r.plate ? '<small>' + escapeHTML(r.plate) + '</small>' : '')];
+  if (entity === 'customers') { const remaining = customerOutstandingClient(r.id); cells = [detailButton(r.name) + '<small>' + escapeHTML(r.regency || r.id) + '</small>', escapeHTML(r.contract || (ARMS.db.cases.find(c => c.customerId === r.id) || {}).contract || '-'), escapeHTML(r.phone), escapeHTML(dateLabel(r.dueDate)), '<strong class="money">' + rupiah(r.total) + '</strong><small>Terbayar ' + rupiah(customerPaidClient(r.id)) + '</small>', '<strong class="money' + (remaining > 0 ? '' : ' green-text') + '">' + rupiah(remaining) + '</strong>', processHTML(r.id), escapeHTML(r.brandType || r.vehicle || '-') + (r.plate ? '<small>' + escapeHTML(r.plate) + '</small>' : '')]; }
   if (entity === 'cases') {
     const customer = customerFor(r), person = assigneeFor(r.id);
     cells = [detailButton(r.number) + '<small>' + escapeHTML(customer ? customer.name : '-') + '</small>', escapeHTML(r.client), '<span class="money">' + rupiah(r.principal) + '</span>', '<span class="badge ' + (n(r.overdue) > 90 ? 'red' : n(r.overdue) > 30 ? 'amber' : 'green') + '">' + n(r.overdue) + ' hari</span>', person ? '<span class="person-cell">' + avatar(person.name) + escapeHTML(person.name) + '</span>' : '<small>Belum ditugaskan</small>', badge(r.status)];
@@ -342,7 +378,7 @@ async function submitEntity(form, afterSave) {
     if (entity === 'payments') { data.manualDetails = manualValues(); Object.assign(data, calculateFees(data.amount, data.feeRate, data.partnerRate, data.manualDetails)); }
     const saved = await rpc((id ? 'update' : 'add') + ENTITIES[entity], ...(id ? [id, data] : [data]));
     ARMS.form.id = saved.id; ARMS.form.data = saved;
-    await reloadData();
+    applyServerSaved(entity, saved, id);
     $('#dialog').close(); ARMS.form = null; toast(id ? 'Perubahan berhasil disimpan.' : 'Data baru berhasil ditambahkan.');
     if (entity === 'collections' && afterSave === 'payment') recordCollectionPayment(saved.id);
   } catch (error) { $('#form-error').textContent = error.message; $('#form-error').hidden = false; $('#form-error').scrollIntoView({ block: 'nearest' }); }
@@ -355,7 +391,7 @@ function openDetail(entity, id) {
   if (FINANCE_ENTITIES.includes(entity)) return openFinanceDetail(entity, id);
   const r = recordById(entity, id); if (!r) return toast('Data tidak ditemukan.', true);
   let items = [], title = r.name || r.number || r.username || id;
-  if (entity === 'customers') items = [['No. Kontrak', r.contract || (ARMS.db.cases.find(c => c.customerId === r.id) || {}).contract], ['Nama', r.name], ['Kabupaten/Kota', r.regency], ['Kecamatan', r.district], ['Kelurahan / Desa', r.village], ['Alamat Domisili Debitur', r.address], ['Tanggal Jatuh Tempo', dateLabel(r.dueDate)], ['Nomor Handphone', r.phone], ['Angsuran', rupiah(r.installment)], ['Total Angsuran (Rp)', rupiah(r.total)], ['DENDA', rupiah(r.penalty)], ['Merk/Type', r.brandType || r.vehicle], ['Nomor Polisi', r.plate]];
+  if (entity === 'customers') items = [['No. Kontrak', r.contract || (ARMS.db.cases.find(c => c.customerId === r.id) || {}).contract], ['Nama', r.name], ['Kabupaten/Kota', r.regency], ['Kecamatan', r.district], ['Kelurahan / Desa', r.village], ['Alamat Domisili Debitur', r.address], ['Tanggal Jatuh Tempo', dateLabel(r.dueDate)], ['Nomor Handphone', r.phone], ['Angsuran', rupiah(r.installment)], ['Total Angsuran (Rp)', rupiah(r.total)], ['Sudah Dibayar (Rp)', rupiah(customerPaidClient(r.id))], ['Total Angsuran Belum Dibayar (Rp)', rupiah(customerOutstandingClient(r.id))], ['DENDA', rupiah(r.penalty)], ['Merk/Type', r.brandType || r.vehicle], ['Nomor Polisi', r.plate]];
   if (entity === 'cases') { const customer = customerFor(r), person = assigneeFor(r.id); items = [['Debitur', (customer || {}).name], ['NIK', (customer || {}).nik], ['Klien', r.client], ['Tipe klien', r.clientType], ['No. kontrak', r.contract], ['Principal outstanding', rupiah(r.principal)], ['Pembayaran diterima', rupiah(paidFor(r.id))], ['Sisa piutang', rupiah(Math.max(0, n(r.principal) - paidFor(r.id)))], ['Overdue days', r.overdue + ' hari'], ['DPD bucket', r.bucket], ['Petugas', (person || {}).name || 'Belum ditugaskan'], ['Status', r.status], ['Aset', r.asset]]; }
   if (entity === 'personnel') items = [['ID Personel', r.id], ['Nama', r.name], ['Posisi / Jabatan', r.position], ['Jenis personel', r.type === 'Mitra DC' ? 'Mitra' : 'Karyawan'], ['Rekening bank', r.bank], ['NIK', r.nik || '-'], ['Foto KTP', r.ktpPhotoName || (r.ktpPhoto ? 'Tersimpan' : 'Belum diunggah')], ['Foto SPPI', r.sppiPhotoName || (r.sppiPhoto ? 'Tersimpan' : 'Belum diunggah (opsional)')]];
   if (entity === 'users') items = [['ID Pengguna', r.id], ['Email Google', r.username], ['Peran', r.role]];
@@ -388,7 +424,7 @@ function confirmDeletion(entity, id) {
 }
 async function deleteConfirmed() {
   if (!ARMS.deleting || ARMS.locked) return; ARMS.locked = true;
-  try { await rpc('delete' + ENTITIES[ARMS.deleting.entity], ARMS.deleting.id); await reloadData(); $('#dialog').close(); ARMS.deleting = null; toast('Data berhasil dihapus.'); }
+  try { await rpc('delete' + ENTITIES[ARMS.deleting.entity], ARMS.deleting.id); applyServerDeleted(ARMS.deleting.entity, ARMS.deleting.id); $('#dialog').close(); ARMS.deleting = null; toast('Data berhasil dihapus.'); }
   catch (error) { $('#delete-error').textContent = error.message; $('#delete-error').hidden = false; }
   finally { ARMS.locked = false; }
 }
@@ -418,9 +454,9 @@ async function submitLetter(form) {
   delete data.generatorData;
   try {
     const saved = await rpc(data.id ? 'updateSK' : 'addSK', ...(data.id ? [data.id, data] : [data]));
-    ARMS.letter = Object.assign({}, saved, { saved: true });
-    ARMS.db = await rpc('getBootstrap');
-    ARMS.letter = Object.assign({}, recordById('letters', saved.id), { saved: true });
+    const previous = data.id ? recordById('letters', data.id) : null;
+    upsertSavedEntity('letters', saved, previous);
+    ARMS.letter = Object.assign({}, recordById('letters', saved.id) || saved, { saved: true });
     renderAll(); toast('Penugasan tersimpan. Upload PDF surat pada form di bawah.');
   } catch (error) { $('#letter-error').textContent = error.message; $('#letter-error').hidden = false; }
   finally { ARMS.locked = false; }
@@ -443,7 +479,7 @@ function renderSettings() {
 }
 async function submitSettings(form) {
   if (ARMS.locked) return; ARMS.locked = true;
-  try { const data = Object.fromEntries(new FormData(form)); ['feeRate', 'partnerRate', 'target'].forEach(key => data[key] = n(data[key])); await rpc('updateSettings', data); await reloadData(); toast('Pengaturan berhasil disimpan.'); }
+  try { const data = Object.fromEntries(new FormData(form)); ['feeRate', 'partnerRate', 'target'].forEach(key => data[key] = n(data[key])); ARMS.db.settings = await rpc('updateSettings', data); renderAll(); toast('Pengaturan berhasil disimpan.'); }
   catch (error) { $('#settings-error').textContent = error.message; $('#settings-error').hidden = false; }
   finally { ARMS.locked = false; }
 }
@@ -461,12 +497,15 @@ function csvDownload(filename, rows) {
 }
 function exportEntity(entity, scope) {
   const rows = filteredRows(entity, scope || entity);
+  if (entity === 'customers') {
+    csvDownload('ARMS-' + entity + '.csv', [['ID', 'No. Kontrak', 'Nama', 'Kabupaten/Kota', 'Kecamatan', 'Kelurahan / Desa', 'Alamat Lengkap', 'Tanggal Jatuh Tempo', 'Nomor Handphone', 'Angsuran', 'Total Angsuran', 'Sudah Dibayar', 'Total Angsuran Belum Dibayar', 'Denda', 'Merk/Type', 'Nomor Polisi', 'Foto KTP', 'Foto STNK'], ...rows.map(r => [r.id, r.contract, r.name, r.regency, r.district, r.village, r.streetAddress || r.address, r.dueDate, r.phone, r.installment, r.total, customerPaidClient(r.id), customerOutstandingClient(r.id), r.penalty, r.brandType || r.vehicle, r.plate, r.ktpPhoto || '', r.stnkPhoto || ''])]); return;
+  }
   if (entity === 'clients' || entity === 'collections') {
     const fields = entity === 'clients' ? ['code', 'name', 'industry', 'contactPerson', 'phone', 'email', 'regency', 'district', 'village', 'streetAddress'] : ['number', 'caseId', 'activity', 'activityDate', 'personnelId', 'contactedParty', 'outcome', 'actionPlan', 'nextActionDate', 'report', 'hasPayment'];
     csvDownload('ARMS-' + entity + '.csv', [fields].concat(rows.map(r => fields.map(key => r[key])))); return;
   }
   if (FINANCE_ENTITIES.includes(entity)) { const financeKeys = { executions: ['number', 'caseId', 'personnelId', 'date', 'status', 'method', 'authorityRef', 'handoverRef', 'feeBase', 'feeRate', 'grossFee', 'companyRevenue', 'partnerCommission'], accounts: ['name', 'bank', 'number', 'holder', 'openingBalance'], transactions: ['number', 'accountId', 'date', 'type', 'category', 'client', 'amount', 'reference', 'description', 'sourceType', 'sourceId'] }[entity]; csvDownload('ARMS-' + entity + '.csv', [financeKeys].concat(rows.map(r => financeKeys.map(key => r[key])))); return; }
-  const keys = { customers: ['id', 'contract', 'name', 'regency', 'district', 'village', 'streetAddress', 'dueDate', 'phone', 'installment', 'total', 'penalty', 'brandType', 'plate', 'ktpPhoto', 'stnkPhoto'], cases: ['id', 'number', 'client', 'clientType', 'customerId', 'customerName', 'customerNik', 'contract', 'principal', 'overdue', 'bucket', 'asset', 'status'], letters: ['id', 'number', 'caseId', 'personnelId', 'issuedAt', 'status', 'place', 'signer'], payments: ['id', 'number', 'caseId', 'date', 'amount', 'grossFee', 'companyRevenue', 'partnerCommission', 'manualTotal', 'proof'], personnel: ['id', 'name', 'type', 'bank', 'position', 'nik', 'ktpPhotoName', 'sppiPhotoName'], users: ['id', 'username', 'role'], proposals: ['id', 'number', 'title', 'clientName', 'recipient', 'date', 'status', 'signer', 'signerPosition'] }[entity];
+  const keys = { cases: ['id', 'number', 'client', 'clientType', 'customerId', 'customerName', 'customerNik', 'contract', 'principal', 'overdue', 'bucket', 'asset', 'status'], letters: ['id', 'number', 'caseId', 'personnelId', 'issuedAt', 'status', 'place', 'signer'], payments: ['id', 'number', 'caseId', 'date', 'amount', 'grossFee', 'companyRevenue', 'partnerCommission', 'manualTotal', 'proof'], personnel: ['id', 'name', 'type', 'bank', 'position', 'nik', 'ktpPhotoName', 'sppiPhotoName'], users: ['id', 'username', 'role'], proposals: ['id', 'number', 'title', 'clientName', 'recipient', 'date', 'status', 'signer', 'signerPosition'] }[entity];
   csvDownload('ARMS-' + entity + '.csv', [keys].concat(rows.map(row => keys.map(key => row[key]))));
 }
 function exportReport() {
@@ -565,7 +604,12 @@ document.addEventListener('input', event => {
   if (input.dataset.query) { ARMS.query[input.dataset.query] = input.value; ARMS.pages[input.dataset.query] = 1; rerenderTable(input.dataset.query); return; }
   if (input.closest('#entity-form') && ARMS.form) {
     if (ARMS.form.entity === 'customers' || ARMS.form.entity === 'clients') {
-      if (['installment', 'penalty'].includes(input.name)) formControl('total').value = rupiah(n(formControl('installment').value) + n(formControl('penalty').value));
+      if (['installment', 'penalty'].includes(input.name)) {
+        const total = n(formControl('installment').value) + n(formControl('penalty').value);
+        formControl('total').value = rupiah(total);
+        const remaining = formControl('remainingInput');
+        if (remaining && ARMS.form.entity === 'customers') remaining.value = rupiah(Math.max(0, total - customerPaidClient(ARMS.form.id)));
+      }
       if (['regency', 'district'].includes(input.name)) ARMS.form.customerState[input.name] = input.value;
       if (input.name === 'plate') input.value = input.value.toUpperCase();
       if (input.name === 'code') input.value = input.value.toUpperCase();

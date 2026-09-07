@@ -41,6 +41,26 @@ function persist(data: Database) {
   catch { throw new Error('Penyimpanan lokal penuh atau diblokir. Aktifkan penyimpanan browser sebelum menyimpan.'); }
 }
 
+/** Sinkronkan hasil operasi server ke workspace lokal tanpa panggilan ulang. */
+function applyServerMutation(db: Database, entity: Entity, saved?: RecordData, removeId?: string): Database {
+  const next = migrateDatabase(JSON.parse(JSON.stringify(db)));
+  if (removeId) {
+    const rows = next[entity] as RecordData[];
+    const removeIndex = rows.findIndex(r => r.id === removeId);
+    if (removeIndex >= 0) rows.splice(removeIndex, 1);
+  } else if (saved) {
+    const rows = next[entity] as RecordData[];
+    const index = rows.findIndex(r => r.id === saved.id);
+    if (index >= 0) rows[index] = saved; else rows.unshift(saved);
+  }
+  if (entity === 'collections') {
+    const log = saved as Database['collections'][number] | undefined;
+    const c = next.cases.find(c => c.id === log?.caseId);
+    if (c?.status === 'Aktif') c.status = 'Dalam Proses';
+  }
+  return migrateDatabase(next);
+}
+
 function migrateDatabase(db: Database): Database {
   db.executions = Array.isArray(db.executions) ? db.executions : [];
   db.accounts = Array.isArray(db.accounts) ? db.accounts : [];
@@ -81,10 +101,10 @@ export async function saveRecord(db: Database, entity: Entity, values: Partial<R
   }
   if (isGoogleConnected()) {
     const saved = await gasCall<RecordData>(`${id ? 'update' : 'add'}${endpoints[entity]}`, ...(id ? [id, values] : [values]));
-    try { return await loadDatabase(); }
-    catch { throw new SavedRecordRefreshError(entity, saved); }
+    // Server sudah mengonfirmasi dan mengembalikan record lengkap; sinkronkan
+    // relasi secara lokal agar tidak perlu memuat ulang seluruh workspace.
+    return applyServerMutation(db, entity, saved);
   }
-  await new Promise(resolve => setTimeout(resolve, 450));
   const next: Database = migrateDatabase(JSON.parse(JSON.stringify(db)));
   if (entity === 'users' && next.currentUser?.role !== 'Administrator') throw new Error('Hanya Administrator yang dapat mengelola pengguna.');
   if (['accounts', 'transactions'].includes(entity) && next.currentUser?.role === 'Collector') throw new Error('Mutasi rekening dikelola Administrator atau Supervisor.');
@@ -230,8 +250,7 @@ export async function saveRecord(db: Database, entity: Entity, values: Partial<R
 }
 
 export async function deleteRecord(db: Database, entity: Entity, id: string): Promise<Database> {
-  if (isGoogleConnected()) { await gasCall(`delete${endpoints[entity]}`, id); return loadDatabase(); }
-  await new Promise(resolve => setTimeout(resolve, 350));
+  if (isGoogleConnected()) { await gasCall(`delete${endpoints[entity]}`, id); return applyServerMutation(db, entity, undefined, id); }
   if (db.currentUser?.role === 'Collector') throw new Error('Collector tidak memiliki izin menghapus data.');
   if (entity === 'users' && db.currentUser?.role !== 'Administrator') throw new Error('Hanya Administrator yang dapat mengelola pengguna.');
   if (entity === 'clients' && (db.cases.some(c => c.clientId === id) || db.transactions.some(t => t.clientId === id))) throw new Error('Klien masih terhubung ke kasus atau transaksi. Hapus relasinya terlebih dahulu.');
@@ -256,10 +275,12 @@ export async function deleteRecord(db: Database, entity: Entity, id: string): Pr
 }
 
 export async function saveSettings(db: Database, settings: Settings): Promise<Database> {
-  if (isGoogleConnected()) { await gasCall('updateSettings', settings); return loadDatabase(); }
+  if (isGoogleConnected()) {
+    const saved = await gasCall<Settings>('updateSettings', settings);
+    return migrateDatabase({ ...JSON.parse(JSON.stringify(db)), settings: saved });
+  }
   if (db.currentUser?.role !== 'Administrator') throw new Error('Hanya Administrator yang dapat mengubah pengaturan.');
   if (!settings.agency.trim() || !settings.signer.trim()) throw new Error('Nama agensi dan penandatangan wajib diisi.');
-  await new Promise(resolve => setTimeout(resolve, 350));
   validateNumber(settings.feeRate, 'Fee', 100); validateNumber(settings.partnerRate, 'Komisi', 100); validateNumber(settings.target, 'Target');
   validateNumber(settings.reportIntervalDays || 3, 'Interval laporan', 30);
   if (settings.logo && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(settings.logo) || settings.logo.length > 180000)) throw new Error('Logo tidak valid atau terlalu besar.');
@@ -270,8 +291,9 @@ export async function importCustomers(db: Database, rows: Customer[], batchId: s
   if (!/^[a-f0-9-]{36}$/.test(batchId) || !rows.length || rows.length > 300) throw new Error('Batch impor tidak valid.');
   if (isGoogleConnected()) {
     const result = await gasCall<Customer[]>('importCustomers', rows, batchId);
-    try { return await loadDatabase(); }
-    catch { return migrateDatabase({ ...db, customers: [...result, ...db.customers.filter(c => !result.some(row => row.id === c.id))] }); }
+    const next = migrateDatabase(JSON.parse(JSON.stringify(db)));
+    next.customers = [...result, ...next.customers.filter(c => !result.some(row => row.id === c.id))];
+    return migrateDatabase(next);
   }
   const { validateImportedCustomer } = await import('./importDebtors');
   const current = await loadDatabase();
@@ -294,12 +316,8 @@ export async function saveLetterPdf(db: Database, letterId: string, upload: PdfU
   await pdfUploadBlob(upload);
   if (isGoogleConnected()) {
     const saved = await gasCall<Letter>('uploadSKPdf', letterId, upload, uploadId, expectedPdfUrl);
-    try {
-      const fresh = await loadDatabase();
-      return { db: fresh, letter: fresh.letters.find(l => l.id === saved.id) || saved, refreshed: true };
-    } catch {
-      return { db: { ...db, letters: db.letters.map(l => l.id === saved.id ? saved : l) }, letter: saved, refreshed: false };
-    }
+    const fresh = migrateDatabase({ ...db, letters: db.letters.some(l => l.id === saved.id) ? db.letters.map(l => l.id === saved.id ? saved : l) : [saved, ...db.letters] });
+    return { db: fresh, letter: fresh.letters.find(l => l.id === saved.id) || saved, refreshed: true };
   }
   const current = await loadDatabase(), letter = current.letters.find(l => l.id === letterId);
   if (!letter || !letter.number) throw new Error('Simpan penugasan terlebih dahulu sebelum mengunggah PDF.');

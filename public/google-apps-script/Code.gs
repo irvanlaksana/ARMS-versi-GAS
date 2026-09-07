@@ -213,7 +213,7 @@ function nextNumber_(prefix) {
   return prefix + '/ARMS/' + date + '/' + String(sequence).padStart(4, '0');
 }
 
-function write_(name, data, existingId) {
+function write_(name, data, existingId, skipFlush) {
   var sheet = ensureSchema_(name);
   var values = ARMS_SCHEMA[name].keys.map(function (key) {
     var value = data[key] == null ? '' : data[key];
@@ -228,7 +228,7 @@ function write_(name, data, existingId) {
     if (index < 0) throw new Error('Data tidak ditemukan.');
     sheet.getRange(index + 2, 1, 1, values.length).setValues([values]);
   } else sheet.appendRow(values);
-  SpreadsheetApp.flush();
+  if (!skipFlush) SpreadsheetApp.flush();
   return data;
 }
 
@@ -362,6 +362,14 @@ function save_(name, data, id) {
       try {
         if (name === 'Customers' || name === 'Personnel') prepareEntityPhotos_(name, record, newFiles, replacedFiles);
         write_(name, record, id);
+        // Sinkron relasi hanya pada record yang berubah agar penyimpanan lebih cepat;
+        // flush dilakukan sekali di akhir untuk penghematan waktu API.
+        if (name === 'Customers') syncCustomerCases_(record);
+        else if (name === 'Cases') { syncCaseReference_(record); syncCasePaymentsFor_([record.id]); }
+        else if (name === 'Payments') syncCasePaymentsFor_([record.caseId].concat(existing && existing.caseId !== record.caseId ? [existing.caseId] : []));
+        else if (name === 'Clients') syncCrmReferences_();
+        else if (name === 'CollectionLogs') { var linked = find_('Cases', record.caseId); if (linked.status === 'Aktif') { linked.status = 'Dalam Proses'; write_('Cases', linked, linked.id, true); } }
+        SpreadsheetApp.flush();
       } catch (error) {
         newFiles.forEach(function (file) { try { file.setTrashed(true); } catch (cleanupError) { console.warn('Dokumen baru perlu diperiksa oleh administrator.'); } });
         throw error;
@@ -369,9 +377,6 @@ function save_(name, data, id) {
       if (name === 'Customers' || name === 'Personnel') {
         replacedFiles.forEach(trashCustomerDocument_);
       }
-      if (['Clients', 'Cases', 'Customers'].indexOf(name) >= 0) syncCrmReferences_();
-      if (name === 'CollectionLogs') { var linked = find_('Cases', record.caseId); if (linked.status === 'Aktif') { linked.status = 'Dalam Proses'; write_('Cases', linked, linked.id); } }
-      if (['Payments', 'Customers', 'Cases'].indexOf(name) >= 0) syncCasePayments_();
       return record;
     });
   });
@@ -392,7 +397,7 @@ function remove_(name, id) {
       var sheet = database_().getSheetByName(name);
       var index = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().findIndex(function (row) { return row[0] === id; });
       sheet.deleteRow(index + 2);
-      if (name === 'Payments') syncCasePayments_();
+      if (name === 'Payments') syncCasePaymentsFor_([record.caseId]);
       if (name === 'Customers') [record.ktpPhoto, record.stnkPhoto].filter(Boolean).forEach(trashCustomerDocument_);
       if (name === 'Personnel') [record.ktpPhoto, record.sppiPhoto].filter(Boolean).forEach(trashCustomerDocument_);
       if (name === 'SK' && record.pdfUrl) trashCustomerDocument_(record.pdfUrl);
@@ -547,6 +552,63 @@ function syncCasePayments_() {
     var autoClosed = c.paymentClosed === true || String(c.paymentClosed).toLowerCase() === 'true';
     if (complete && c.status !== 'Selesai') { c.status = 'Selesai'; c.paymentClosed = true; write_('Cases', c, c.id); }
     else if (!complete && autoClosed) { c.status = 'Dalam Proses'; c.paymentClosed = false; write_('Cases', c, c.id); }
+  });
+}
+/** Versi terarah: hanya kasus yang disebut yang disinkronkan (lebih cepat saat simpan). */
+function syncCasePaymentsFor_(caseIds) {
+  var ids = (Array.isArray(caseIds) ? caseIds : [caseIds]).filter(Boolean);
+  if (!ids.length) return;
+  var payments = rows_('Payments');
+  rows_('Cases').forEach(function (c) {
+    if (ids.indexOf(c.id) < 0) return;
+    var paid = payments.filter(function (p) { return p.caseId === c.id; }).reduce(function (sum, p) { return sum + Number(p.amount); }, 0);
+    var complete = Number(c.principal) > 0 && paid >= Number(c.principal);
+    var autoClosed = c.paymentClosed === true || String(c.paymentClosed).toLowerCase() === 'true';
+    if (complete && c.status !== 'Selesai') { c.status = 'Selesai'; c.paymentClosed = true; write_('Cases', c, c.id, true); }
+    else if (!complete && autoClosed) { c.status = 'Dalam Proses'; c.paymentClosed = false; write_('Cases', c, c.id, true); }
+  });
+}
+/** Sinkronkan referensi hanya untuk kasus milik debitur yang disimpan. */
+function syncCustomerCases_(customer) {
+  var cases = rows_('Cases'), related = [];
+  cases.forEach(function (c) {
+    if (c.customerId !== customer.id) return;
+    var before = JSON.stringify(c);
+    c.contract = customer.contract || c.contract;
+    c.principal = Number(customer.total);
+    c.asset = crmVehicle_(customer);
+    if (customer.dueDate && c.createdDate) {
+      try { c.overdue = crmOverdue_(customer.dueDate, c.createdDate); c.bucket = bucket_(c.overdue); c.dueDateSnapshot = customer.dueDate; }
+      catch (error) { console.warn('Tanggal debitur lama belum valid; lengkapi sebelum mengedit kasus.'); }
+    }
+    if (JSON.stringify(c) !== before) write_('Cases', c, c.id, true);
+    related.push(c.id);
+  });
+  syncCasePaymentsFor_(related);
+}
+/** Sinkronkan referensi satu kasus (klien, debitur, transaksi terkait). */
+function syncCaseReference_(record) {
+  var before = JSON.stringify(record);
+  var clients = rows_('Clients'), customers = rows_('Customers');
+  var client = clients.find(function (r) { return r.id === record.clientId; });
+  var customer = customers.find(function (r) { return r.id === record.customerId; });
+  if (client) { record.client = client.name; record.clientType = client.industry; }
+  if (customer) {
+    record.contract = customer.contract || record.contract;
+    record.principal = Number(customer.total);
+    record.asset = crmVehicle_(customer);
+    if (customer.dueDate && record.createdDate) {
+      try { record.overdue = crmOverdue_(customer.dueDate, record.createdDate); record.bucket = bucket_(record.overdue); record.dueDateSnapshot = customer.dueDate; }
+      catch (error) { console.warn('Tanggal debitur lama belum valid; lengkapi sebelum mengedit kasus.'); }
+    }
+  }
+  if (JSON.stringify(record) !== before) write_('Cases', record, record.id, true);
+  rows_('Transactions').forEach(function (t) {
+    if (t.caseId !== record.id) return;
+    var beforeT = JSON.stringify(t);
+    var clientId = record.clientId || t.clientId;
+    var txClient = clients.find(function (r) { return r.id === clientId; });
+    if (txClient && (t.clientId !== txClient.id || t.client !== txClient.name)) { t.clientId = txClient.id; t.client = txClient.name; write_('Transactions', t, t.id, true); }
   });
 }
 function feePosted_(type, sourceId, direction, excludedId) {

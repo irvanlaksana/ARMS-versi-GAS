@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowLeft, ArrowRight, Check, FileImage, LockKeyhole, MapPin, RefreshCw, Save, ShieldCheck, Upload, X } from 'lucide-react';
 import { useArms } from '../lib/context';
-import { currency, type Customer, type PhotoUpload, type RecordData } from '../lib/data';
+import { currency, getCustomerPaid, type Customer, type PhotoUpload, type RecordData } from '../lib/data';
 import { isGoogleConnected } from '../lib/api';
 import { defaultDistricts, defaultRegencies, loadDistricts, loadRegencies, type Region } from '../lib/regions';
 import { readPhoto } from '../lib/documents';
@@ -33,6 +33,9 @@ export function CustomerForm({ record, defaults, busy, error, onClose, onSubmit 
   const saving = busy || uploading.length > 0;
   const text = (key: keyof Customer) => String(values[key] ?? '');
   const update = (key: keyof Customer, value: string | number) => setValues(v => ({ ...v, [key]: value }));
+  const currentTotal = Number(values.installment || 0) + Number(values.penalty || 0);
+  const customerPaid = record ? getCustomerPaid(db, record.id) : 0;
+  const unpaid = Math.max(0, currentTotal - customerPaid);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
@@ -106,8 +109,10 @@ export function CustomerForm({ record, defaults, busy, error, onClose, onSubmit 
       <div className="customer-section-title"><h3>Rincian angsuran</h3></div>
       <div className="form-grid customer-finance-grid">
         <Field label="Angsuran" required hint="Nominal angsuran dalam rupiah."><input name="installment" type="number" min="0" max="1000000000000000" value={values.installment ?? ''} onChange={e => update('installment', e.target.value)} required/></Field>
-        <Field label="Total Angsuran (Rp)" hint="Otomatis: angsuran + denda."><div className="locked-input"><input name="total" value={currency(Number(values.installment || 0) + Number(values.penalty || 0))} readOnly aria-readonly="true"/><LockKeyhole size={14}/></div></Field>
+        <Field label="Total Angsuran (Rp)" hint="Otomatis: angsuran + denda."><div className="locked-input"><input name="total" value={currency(currentTotal)} readOnly aria-readonly="true"/><LockKeyhole size={14}/></div></Field>
         <Field label="DENDA"><input name="penalty" type="number" min="0" max="1000000000000000" value={values.penalty ?? ''} onChange={e => update('penalty', e.target.value)}/></Field>
+        <Field label="Sudah Dibayar (Rp)" hint="Akumulasi pembayaran pada kasus debitur."><div className="locked-input"><input value={currency(customerPaid)} readOnly aria-readonly="true"/><LockKeyhole size={14}/></div></Field>
+        <Field label="Total Angsuran Belum Dibayar (Rp)" hint="Otomatis: total angsuran - sudah dibayar."><div className="locked-input"><input value={currency(unpaid)} readOnly aria-readonly="true"/><LockKeyhole size={14}/></div></Field>
       </div>
       <div className="customer-section-title"><h3>Spesifikasi Kendaraan</h3></div>
       <div className="form-grid"><Field label="Merk/Type"><input name="brandType" value={text('brandType')} onChange={e => update('brandType', e.target.value)} placeholder="Contoh: Honda / Vario 160" maxLength={150}/></Field><Field label="Nomor Polisi"><input name="plate" value={text('plate')} onChange={e => update('plate', e.target.value.toUpperCase())} placeholder="Contoh: B 1234 ABC" maxLength={20}/></Field></div>
@@ -119,7 +124,7 @@ export function CustomerForm({ record, defaults, busy, error, onClose, onSubmit 
         {(['ktp', 'stnk'] as const).map(kind => <PhotoPicker key={kind} label={kind === 'ktp' ? 'Foto KTP' : 'Foto STNK'} upload={values[`${kind}Upload`]} existingName={values[`${kind}PhotoName`] || (values[`${kind}Photo`] ? `${kind.toUpperCase()} tersimpan` : '')} disabled={busy} loading={uploading.includes(kind)} onSelect={file => selectPhoto(kind, file)} onRemove={() => setValues(v => ({ ...v, [`${kind}Upload`]: null }))}/>) }
       </div>
       <p className="form-note"><ShieldCheck size={13}/>{isGoogleConnected() ? 'Foto disimpan di Google Drive terbatas saat debitur disimpan.' : 'Mode demo: gunakan foto contoh. Foto disimpan lokal di perangkat ini.'}</p>
-      <dl className="customer-final-summary"><div><dt>Debitur</dt><dd>{text('name') || '-'}</dd></div><div><dt>No. kontrak</dt><dd>{text('contract') || '-'}</dd></div><div><dt>Total angsuran</dt><dd>{currency(Number(values.installment || 0) + Number(values.penalty || 0))}</dd></div></dl>
+      <dl className="customer-final-summary"><div><dt>Debitur</dt><dd>{text('name') || '-'}</dd></div><div><dt>No. kontrak</dt><dd>{text('contract') || '-'}</dd></div><div><dt>Total angsuran</dt><dd>{currency(currentTotal)}</dd></div><div><dt>Belum dibayar</dt><dd>{currency(unpaid)}</dd></div></dl>
       </div>
       {(error || uploadError) && <div className="form-error" role="alert"><AlertCircle size={15}/>{uploadError || error}</div>}
     </div><footer className="modal-footer"><span className="step-counter">Bagian {step + 1} dari 3</span><div><button type="button" className="button button-secondary" onClick={() => step ? changeStep(step - 1) : onClose()} disabled={saving}>{step > 0 && <ArrowLeft size={14}/>} {step ? 'Kembali' : 'Batal'}</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? <Spinner/> : step === 2 ? <Save size={15}/> : <ArrowRight size={15}/>} {busy ? 'Menyimpan...' : uploading.length ? 'Membaca foto...' : step === 2 ? 'Simpan Debitur' : 'Lanjutkan'}</button></div></footer></fieldset></form>

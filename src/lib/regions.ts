@@ -1,53 +1,28 @@
 export interface Region { id: string; name: string }
-const BASE = 'https://www.emsifa.com/api-wilayah-indonesia/v2';
-const cache = new Map<string, Promise<Region[]>>();
 
-// A small verified fallback keeps the selector usable while the national list loads.
+// Wilayah yang ditampilkan pada form kabupaten/kota otomatis:
+// hanya Banyumas, Purbalingga, Cilacap, dan Banjarnegara (Jawa Tengah),
+// lengkap dengan seluruh kecamatannya. Data statis agar cepat dan
+// tidak bergantung pada jaringan saat form dibuka.
 export const defaultRegencies: Region[] = [
-  { id: '31.01', name: 'Kabupaten Administrasi Kepulauan Seribu' },
-  { id: '31.71', name: 'Kota Administrasi Jakarta Pusat' },
-  { id: '31.72', name: 'Kota Administrasi Jakarta Utara' },
-  { id: '31.73', name: 'Kota Administrasi Jakarta Barat' },
-  { id: '31.74', name: 'Kota Administrasi Jakarta Selatan' },
-  { id: '31.75', name: 'Kota Administrasi Jakarta Timur' },
+  { id: '33.02', name: 'Kabupaten Banyumas' },
+  { id: '33.03', name: 'Kabupaten Purbalingga' },
+  { id: '33.01', name: 'Kabupaten Cilacap' },
+  { id: '33.04', name: 'Kabupaten Banjarnegara' },
 ];
+const kecamatan = (regencyId: string, names: string[]): Region[] => names.map((name, i) => ({ id: `${regencyId}.${String(i + 1).padStart(2, '0')}`, name }));
+
 export const defaultDistricts: Record<string, Region[]> = {
-  '31.74': ['Tebet', 'Setiabudi', 'Mampang Prapatan', 'Pasar Minggu', 'Kebayoran Lama', 'Cilandak', 'Kebayoran Baru', 'Pancoran', 'Jagakarsa', 'Pesanggrahan'].map((name, i) => ({ id: `31.74.${String(i + 1).padStart(2, '0')}`, name })),
+  '33.01': kecamatan('33.01', ['Kedungreja', 'Kesugihan', 'Adipala', 'Binangun', 'Nusawungu', 'Kroya', 'Maos', 'Jeruklegi', 'Kawunganten', 'Gandrungmangu', 'Sidareja', 'Karangpucung', 'Cimanggu', 'Majenang', 'Wanareja', 'Dayeuhluhur', 'Sampang', 'Cipari', 'Patimuan', 'Bantarsari', 'Cilacap Selatan', 'Cilacap Tengah', 'Cilacap Utara', 'Kampung Laut']),
+  '33.02': kecamatan('33.02', ['Lumbir', 'Wangon', 'Jatilawang', 'Rawalo', 'Kebasen', 'Kemranjen', 'Sumpiuh', 'Tambak', 'Somagede', 'Kalibagor', 'Banyumas', 'Patikraja', 'Purwojati', 'Ajibarang', 'Gumelar', 'Pekuncen', 'Cilongok', 'Karanglewas', 'Sokaraja', 'Kembaran', 'Sumbang', 'Baturraden', 'Kedungbanteng', 'Purwokerto Selatan', 'Purwokerto Barat', 'Purwokerto Timur', 'Purwokerto Utara']),
+  '33.03': kecamatan('33.03', ['Kemangkon', 'Bukateja', 'Kejobong', 'Kaligondang', 'Purbalingga', 'Kalimanah', 'Kutasari', 'Mrebet', 'Bobotsari', 'Karangreja', 'Karanganyar', 'Karangmoncol', 'Rembang', 'Bojongsari', 'Padamara', 'Pengadegan', 'Karangjambu', 'Kertanegara']),
+  '33.04': kecamatan('33.04', ['Susukan', 'Purworeja Klampok', 'Mandiraja', 'Purwanegara', 'Bawang', 'Banjarnegara', 'Sigaluh', 'Madukara', 'Banjarmangu', 'Wanadadi', 'Rakit', 'Punggelan', 'Karangkobar', 'Pagentan', 'Pejawaran', 'Batur', 'Wanayasa', 'Kalibening', 'Pandanarum', 'Pagedongan']),
 };
 
-function fetchRegions(path: string): Promise<Region[]> {
-  if (cache.has(path)) return cache.get(path)!;
-  const request = (async () => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(`${BASE}/${path}.json`, { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
-      if (!response.ok) throw new Error('Referensi wilayah tidak dapat dimuat.');
-      const json = await response.json();
-      if (!Array.isArray(json.data)) throw new Error('Format referensi wilayah tidak valid.');
-      return json.data.filter((row: Region) => row && typeof row.name === 'string' && row.id).map((row: Region) => ({ id: String(row.id), name: row.name }));
-    } finally { clearTimeout(timeout); }
-  })();
-  cache.set(path, request);
-  request.catch(() => cache.delete(path));
-  return request;
+/** Daftar wilayah kini disediakan langsung dari data aplikasi (tanpa jaringan). */
+export function loadRegencies(): Promise<{ rows: Region[]; partial: boolean }> {
+  return Promise.resolve({ rows: defaultRegencies, partial: false });
 }
-
-let regenciesRequest: Promise<{ rows: Region[]; partial: boolean }> | undefined;
-export function loadRegencies() {
-  if (!regenciesRequest) {
-    regenciesRequest = (async () => {
-      const provinces = await fetchRegions('provinces');
-      const results = await Promise.allSettled(provinces.map(p => fetchRegions(`regencies/${p.id}`)));
-      const rows = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-      if (!rows.length) throw new Error('Daftar wilayah belum tersedia. Gunakan input manual atau coba lagi.');
-      const unique = new Map([...defaultRegencies, ...rows].map(r => [r.id, r]));
-      const partial = results.some(result => result.status === 'rejected');
-      if (partial) regenciesRequest = undefined;
-      return { rows: [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, 'id')), partial };
-    })();
-    regenciesRequest.catch(() => { regenciesRequest = undefined; });
-  }
-  return regenciesRequest;
+export function loadDistricts(regencyId: string): Promise<Region[]> {
+  return Promise.resolve(defaultDistricts[regencyId] || []);
 }
-export const loadDistricts = (regencyId: string) => fetchRegions(`districts/${encodeURIComponent(regencyId)}`);

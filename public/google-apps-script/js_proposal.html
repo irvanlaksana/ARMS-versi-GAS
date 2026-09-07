@@ -607,7 +607,7 @@ async function saveProposal() {
     const payload = JSON.parse(JSON.stringify(draft));
     delete payload.saved;
     const saved = await rpc(payload.id ? 'updateProposal' : 'addProposal', ...(payload.id ? [payload.id, payload] : [payload]));
-    await reloadData();
+    upsertSavedEntity('proposals', saved, payload.id ? recordById('proposals', payload.id) : null);
     const stored = recordById('proposals', saved.id);
     ARMS.proposal = Object.assign(cloneProposal(stored || saved), { saved: true });
     ARMS.proposalError = '';
