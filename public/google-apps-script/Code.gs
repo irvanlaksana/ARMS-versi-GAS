@@ -67,10 +67,15 @@ function locked_(work) {
   try { return work(); } finally { lock.releaseLock(); }
 }
 
+var ARMS_SS = null;
+var ARMS_ROW_CACHE = {};
+
 function database_() {
+  if (ARMS_SS) return ARMS_SS;
   var id = PropertiesService.getScriptProperties().getProperty('ARMS_SPREADSHEET_ID');
   if (!id) throw new Error('Database belum disiapkan. Jalankan initializeDatabase dari editor Apps Script.');
-  return SpreadsheetApp.openById(id);
+  ARMS_SS = SpreadsheetApp.openById(id);
+  return ARMS_SS;
 }
 
 function initializeDatabase() {
@@ -87,6 +92,8 @@ function initializeDatabase() {
       var ss = savedId ? SpreadsheetApp.openById(savedId) : (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.create('ARMS - Database'));
       props.setProperty('ARMS_SPREADSHEET_ID', ss.getId());
       props.setProperty('ARMS_INITIALIZED_BY', activeEmail);
+      ARMS_SS = ss;
+      ARMS_ROW_CACHE = {};
       // Seluruh sheet dibuat/dilengkapi otomatis; kolom baru selalu appended di akhir.
       ARMS_SCHEMA_READY = {};
       Object.keys(ARMS_SCHEMA).forEach(function (name) { ensureSchema_(name); });
@@ -143,10 +150,11 @@ function ensureSchema_(name) {
 }
 
 function rows_(name) {
+  if (ARMS_ROW_CACHE[name]) return ARMS_ROW_CACHE[name];
   var sheet = ensureSchema_(name);
-  if (sheet.getLastRow() < 2) return [];
+  if (sheet.getLastRow() < 2) { ARMS_ROW_CACHE[name] = []; return ARMS_ROW_CACHE[name]; }
   var keys = ARMS_SCHEMA[name].keys;
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, keys.length).getValues().filter(function (row) { return row[0]; }).map(function (row) {
+  ARMS_ROW_CACHE[name] = sheet.getRange(2, 1, sheet.getLastRow() - 1, keys.length).getValues().filter(function (row) { return row[0]; }).map(function (row) {
     var data = {};
     keys.forEach(function (key, i) {
       var value = row[i];
@@ -161,6 +169,18 @@ function rows_(name) {
     });
     return data;
   });
+  return ARMS_ROW_CACHE[name];
+}
+
+function cachePut_(name, record) {
+  var list = ARMS_ROW_CACHE[name] || rows_(name);
+  var i = list.findIndex(function (row) { return row.id === record.id; });
+  if (i >= 0) list[i] = record; else list.unshift(record);
+  ARMS_ROW_CACHE[name] = list;
+}
+
+function cacheDrop_(name, id) {
+  ARMS_ROW_CACHE[name] = (ARMS_ROW_CACHE[name] || rows_(name)).filter(function (row) { return row.id !== id; });
 }
 
 /** Baca tabel tambahan tanpa menggagalkan request bila sheet belum siap. */
@@ -228,6 +248,7 @@ function write_(name, data, existingId, skipFlush) {
     if (index < 0) throw new Error('Data tidak ditemukan.');
     sheet.getRange(index + 2, 1, 1, values.length).setValues([values]);
   } else sheet.appendRow(values);
+  cachePut_(name, data);
   if (!skipFlush) SpreadsheetApp.flush();
   return data;
 }
@@ -361,13 +382,12 @@ function save_(name, data, id) {
       var replacedFiles = [];
       try {
         if (name === 'Customers' || name === 'Personnel') prepareEntityPhotos_(name, record, newFiles, replacedFiles);
-        write_(name, record, id);
-        // Sinkron relasi hanya pada record yang berubah agar penyimpanan lebih cepat;
-        // flush dilakukan sekali di akhir untuk penghematan waktu API.
+        write_(name, record, id, true);
+        // Sinkron relasi hanya pada record yang berubah; flush sekali di akhir.
         if (name === 'Customers') syncCustomerCases_(record);
         else if (name === 'Cases') { syncCaseReference_(record); syncCasePaymentsFor_([record.id]); }
         else if (name === 'Payments') syncCasePaymentsFor_([record.caseId].concat(existing && existing.caseId !== record.caseId ? [existing.caseId] : []));
-        else if (name === 'Clients') syncCrmReferences_();
+        else if (name === 'Clients') syncClientCases_(record);
         else if (name === 'CollectionLogs') { var linked = find_('Cases', record.caseId); if (linked.status === 'Aktif') { linked.status = 'Dalam Proses'; write_('Cases', linked, linked.id, true); } }
         SpreadsheetApp.flush();
       } catch (error) {
@@ -397,6 +417,7 @@ function remove_(name, id) {
       var sheet = database_().getSheetByName(name);
       var index = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().findIndex(function (row) { return row[0] === id; });
       sheet.deleteRow(index + 2);
+      cacheDrop_(name, id);
       if (name === 'Payments') syncCasePaymentsFor_([record.caseId]);
       if (name === 'Customers') [record.ktpPhoto, record.stnkPhoto].filter(Boolean).forEach(trashCustomerDocument_);
       if (name === 'Personnel') [record.ktpPhoto, record.sppiPhoto].filter(Boolean).forEach(trashCustomerDocument_);
@@ -566,6 +587,24 @@ function syncCasePaymentsFor_(caseIds) {
     var autoClosed = c.paymentClosed === true || String(c.paymentClosed).toLowerCase() === 'true';
     if (complete && c.status !== 'Selesai') { c.status = 'Selesai'; c.paymentClosed = true; write_('Cases', c, c.id, true); }
     else if (!complete && autoClosed) { c.status = 'Dalam Proses'; c.paymentClosed = false; write_('Cases', c, c.id, true); }
+  });
+}
+/** Sinkronkan nama/industri klien ke kasus dan transaksi terkait saja. */
+function syncClientCases_(client) {
+  rows_('Cases').forEach(function (c) {
+    if (c.clientId !== client.id) return;
+    var before = JSON.stringify(c);
+    c.client = client.name; c.clientType = client.industry;
+    if (JSON.stringify(c) !== before) write_('Cases', c, c.id, true);
+  });
+  rows_('Transactions').forEach(function (t) {
+    if (t.clientId !== client.id) return;
+    if (t.client !== client.name) { t.client = client.name; write_('Transactions', t, t.id, true); }
+  });
+  optionalRows_('Proposals').forEach(function (proposal) {
+    if (proposal.clientId === client.id && proposal.clientName !== client.name) {
+      proposal.clientName = client.name; write_('Proposals', proposal, proposal.id, true);
+    }
   });
 }
 /** Sinkronkan referensi hanya untuk kasus milik debitur yang disimpan. */
