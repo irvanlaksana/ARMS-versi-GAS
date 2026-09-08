@@ -70,7 +70,11 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); searchRef.current?.focus(); setSearchOpen(true); }
       if (e.key === 'Escape') { setSearchOpen(false); setProfileOpen(false); setNotificationsOpen(false); setWorkspaceOpen(false); setMobileNav(false); }
     };
-    const outside = (e: MouseEvent) => { if (!(e.target as Element).closest('[data-popover]')) { setSearchOpen(false); setProfileOpen(false); setNotificationsOpen(false); setWorkspaceOpen(false); } };
+    const outside = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (!t || t.closest('[data-popover], select, option, .modal, .search-select, .filter-popover')) return;
+      setSearchOpen(false); setProfileOpen(false); setNotificationsOpen(false); setWorkspaceOpen(false);
+    };
     document.addEventListener('keydown', keys); document.addEventListener('click', outside);
     return () => { document.removeEventListener('keydown', keys); document.removeEventListener('click', outside); };
   }, []);

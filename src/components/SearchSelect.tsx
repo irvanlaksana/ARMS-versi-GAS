@@ -8,7 +8,7 @@ export function SearchSelect({ value, onChange, options, placeholder, required =
   const selected = options.find(o => o.value === value);
   const visible = options.filter(o => `${o.label} ${o.description || ''}`.toLowerCase().includes(query.toLowerCase())).slice(0, 60);
   function choose(option: SearchOption) { onChange(option.value); setOpen(false); setQuery(''); input.current?.focus(); }
-  return <div className={`search-select ${open ? 'open' : ''}`} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); setQuery(''); } }}>
+  return <div className={`search-select ${open ? 'open' : ''}`} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); setQuery(''); } }}>
     <div className="search-select-control"><Search size={15}/><input ref={input} aria-label={label} role="combobox" aria-expanded={open} aria-controls={id} aria-autocomplete="list" aria-activedescendant={open && visible[highlight] ? `${id}-${highlight}` : undefined} value={open ? query : selected?.label || ''} placeholder={selected && open ? selected.label : placeholder} required={required && !selected} disabled={disabled} onFocus={() => { if (!open) { setOpen(true); setQuery(''); setHighlight(0); } }} onChange={e => { setQuery(e.target.value); setHighlight(0); setOpen(true); onChange(''); }} onKeyDown={e => {
       if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHighlight(i => Math.max(0, Math.min(i + 1, visible.length - 1))); }
       if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(i => Math.max(0, i - 1)); }
