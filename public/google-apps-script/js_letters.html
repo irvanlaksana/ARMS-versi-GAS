@@ -10,12 +10,188 @@ function applyLetterCaseDefaults() {
   ARMS.letter.clientAddress = client ? client.address || '' : '';
 }
 
+/* ============================ PAYLOAD SURAT & PDF OTOMATIS ============================
+   Seluruh isian dokumen disusun dari data debitur (identitas, angsuran, denda,
+   jatuh tempo, keterlambatan) dan data mitra DC sebagai penagih, tanpa mengetik
+   ulang. Blok `suratTugas` memakai nama field generator surat eksternal. */
+const LETTER_PAYLOAD_VERSION = 'arms.letter-payload/1';
+const LETTER_PAYLOAD_LIMIT = 60000;
+const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+const isIsoClient = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !isNaN(Date.parse(value));
+const upperText = value => String(value == null ? '' : value).trim().toUpperCase();
+const rupiahSurat = value => 'Rp. ' + Math.round(n(value)).toLocaleString('id-ID');
+const tanggalPanjang = iso => {
+  if (!isIsoClient(iso)) return '';
+  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+  return d.getDate() + ' ' + BULAN_PANJANG[d.getMonth()] + ' ' + d.getFullYear();
+};
+/** Banyaknya angsuran yang belum dibayar dari sisa tagihan dan angsuran per bulan. */
+const hitungAngsuranBelumDibayar = (bulanan, sisa) => {
+  const per = Math.round(n(bulanan)), rest = Math.max(0, Math.round(n(sisa)));
+  return !rest || per <= 0 ? 0 : Math.max(1, Math.ceil(rest / per));
+};
+const slugifyText = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toUpperCase();
+function inisialKreditur(name) {
+  const inBrackets = String(name || '').match(/\(([^)]+)\)/);
+  if (inBrackets) { const short = inBrackets[1].replace(/[^A-Za-z0-9]/g, '').toUpperCase(); if (short) return short.slice(0, 5); }
+  const skip = ['PT', 'CV', 'TBK', 'LTD', 'LLC', 'THE', 'DAN'];
+  const words = String(name || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(word => word && skip.indexOf(word) < 0);
+  return (words.map(word => word[0]).join('').slice(0, 5)) || 'XX';
+}
+/** Penagih pada surat: mitra DC ditampilkan lebih dahulu. */
+const collectorOptions = () => {
+  const mitra = ARMS.db.personnel.filter(p => p.type === 'Mitra DC'), karyawan = ARMS.db.personnel.filter(p => p.type !== 'Mitra DC');
+  return [{ value: '', label: 'Pilih mitra DC / petugas penagih' }].concat(mitra.map(p => ({ value: p.id, label: p.name })), karyawan.map(p => ({ value: p.id, label: p.name })));
+};
+function buildLetterPayload() {
+  const l = ARMS.letter || {}, c = recordById('cases', l.caseId);
+  const customer = customerFor(c) || recordById('customers', l.customerId || '') || null;
+  const client = c ? recordById('clients', c.clientId) : null;
+  const petugas = recordById('personnel', l.personnelId) || null;
+  const s = ARMS.db.settings;
+  const totalAngsuran = Math.round(n((customer || {}).total));
+  const sudahDibayar = customer ? customerPaidClient(customer.id) : 0;
+  const sisaAngsuran = Math.max(0, totalAngsuran - sudahDibayar);
+  const angsuranBulan = Math.round(n((customer || {}).installment));
+  const denda = Math.round(n((customer || {}).penalty));
+  const jatuhTempo = isIsoClient((customer || {}).dueDate) ? customer.dueDate : isIsoClient((c || {}).dueDateSnapshot) ? c.dueDateSnapshot : '';
+  const acuan = today();
+  const hariKeterlambatan = jatuhTempo ? Math.max(0, Math.floor((Date.parse(acuan) - Date.parse(jatuhTempo)) / 86400000)) : 0;
+  const jumlahAngsuranBelumDibayar = hitungAngsuranBelumDibayar(angsuranBulan, sisaAngsuran);
+  const kuasa = (c || {}).clientType === 'PERORANGAN';
+  const berlakuDari = tanggalPanjang(l.issuedAt) || l.issuedAt || '';
+  const berlakuSampai = l.validUntil ? tanggalPanjang(l.validUntil) || l.validUntil : 'tidak dibatasi';
+  return {
+    versi: LETTER_PAYLOAD_VERSION, dibuatPada: new Date().toISOString(), sumber: 'ARMS',
+    penugasan: { id: l.id || '', nomor: l.number || '', jenis: kuasa ? 'Surat Kuasa' : 'Surat Tugas', kasusId: (c || {}).id || '', kasusNomor: (c || {}).number || '', status: l.status || 'Aktif', tempat: l.place || '', tanggalTerbit: l.issuedAt || '', berlakuDari, berlakuSampai: l.validUntil ? berlakuSampai : '' },
+    agensi: { nama: s.agency || '', alamat: s.address || '', penandatangan: l.signer || s.signer || '', jabatan: s.signerPosition || '' },
+    kreditur: { id: (client || {}).id || '', nama: (client || {}).name || (c || {}).client || '', industri: (client || {}).industry || (c || {}).clientType || '', pic: (client || {}).contactPerson || l.clientRepresentative || '', telepon: (client || {}).phone || '', email: (client || {}).email || '', alamat: (client || {}).address || l.clientAddress || '' },
+    debitur: {
+      id: (customer || {}).id || '', nama: (customer || {}).name || '', nik: (customer || {}).nik || '', kontrak: (customer || {}).contract || (c || {}).contract || '',
+      telepon: (customer || {}).phone || '', pekerjaan: (customer || {}).occupation || '', kontakDarurat: (customer || {}).emergency || '',
+      alamatLengkap: (customer || {}).address || '', jalan: (customer || {}).streetAddress || '', kelurahan: (customer || {}).village || '', kecamatan: (customer || {}).district || '', kabupaten: (customer || {}).regency || ''
+    },
+    kendaraan: { merkType: (customer || {}).brandType || '', nomorPolisi: (customer || {}).plate || '', ringkasan: (customer || {}).vehicle || (c || {}).asset || '' },
+    angsuran: { angsuranBulan, sisaAngsuran, jumlahAngsuranBelumDibayar, denda, totalAngsuran, sudahDibayar, jatuhTempo, jatuhTempoTeks: tanggalPanjang(jatuhTempo), hariKeterlambatan, acuanKeterlambatan: acuan },
+    mitra: { id: (petugas || {}).id || '', nama: (petugas || {}).name || '', nik: (petugas || {}).nik || '', jabatan: (petugas || {}).position || '', tipe: (petugas || {}).type || '', rekening: (petugas || {}).bank || '', sebagaiPenagih: true },
+    suratTugas: {
+      nomor: l.number || '', perusahaan: s.agency || '', pemberiNama: l.signer || s.signer || '', pemberiJabatan: s.signerPosition || '',
+      petugasNama: upperText((petugas || {}).name), petugasNik: (petugas || {}).nik || '', petugasJabatan: (petugas || {}).position || '',
+      noKontrak: (customer || {}).contract || (c || {}).contract || '', nasabahNama: upperText((customer || {}).name), nasabahAlamat: upperText((customer || {}).address),
+      jatuhTempo: upperText(tanggalPanjang(jatuhTempo)), noAngsuran: jumlahAngsuranBelumDibayar ? String(jumlahAngsuranBelumDibayar) : '',
+      angsuranNilai: rupiahSurat(angsuranBulan) + ' / ' + rupiahSurat(sisaAngsuran), angsuranBulan: rupiahSurat(angsuranBulan),
+      sisaAngsuran: rupiahSurat(sisaAngsuran), denda: rupiahSurat(denda),
+      keterlambatan: hariKeterlambatan ? hariKeterlambatan + ' hari' : 'tidak ada keterlambatan',
+      merkType: upperText((customer || {}).brandType), noPolisi: upperText((customer || {}).plate),
+      berlakuDari, berlakuSampai, kota: l.place || '', tanggalSuratISO: l.issuedAt || ''
+    }
+  };
+}
+/** Kelompok data payload untuk panel sumber data. */
+function letterPayloadGroups(p) {
+  return [
+    { title: 'Penugasan & agensi', source: 'Form surat + Pengaturan', rows: [['Jenis surat', p.penugasan.jenis], ['Nomor surat', p.penugasan.nomor || '-'], ['Kasus piutang', p.penugasan.kasusNomor || '-'], ['Tanggal terbit', tanggalPanjang(p.penugasan.tanggalTerbit) || p.penugasan.tanggalTerbit || '-'], ['Tempat', p.penugasan.tempat || '-'], ['Berlaku sampai', p.penugasan.berlakuSampai || 'Tidak dibatasi'], ['Agensi penagih', p.agensi.nama || '-'], ['Penandatangan', (p.agensi.penandatangan || '-') + (p.agensi.jabatan ? ' (' + p.agensi.jabatan + ')' : '')]] },
+    { title: 'Kreditur / klien', source: 'Clients & Creditors Master', rows: [['Nama kreditur', p.kreditur.nama || '-'], ['Industri', p.kreditur.industri || '-'], ['Perwakilan / PIC', p.kreditur.pic || '-'], ['Kontak', [p.kreditur.telepon, p.kreditur.email].filter(Boolean).join(' / ') || '-'], ['Alamat', p.kreditur.alamat || '-']] },
+    { title: 'Data debitur', source: 'Form debitur', rows: [['Nama debitur', p.debitur.nama || '-'], ['NIK', p.debitur.nik || '-'], ['No. kontrak', p.debitur.kontrak || '-'], ['No. handphone', p.debitur.telepon || '-'], ['Pekerjaan', p.debitur.pekerjaan || '-'], ['Kontak darurat', p.debitur.kontakDarurat || '-'], ['Alamat domisili', p.debitur.alamatLengkap || '-']] },
+    { title: 'Rincian angsuran', source: 'Form debitur + pembayaran kasus', rows: [['Angsuran / bulan', rupiahSurat(p.angsuran.angsuranBulan)], ['Angsuran belum dibayar', rupiahSurat(p.angsuran.sisaAngsuran) + (p.angsuran.jumlahAngsuranBelumDibayar ? ' (' + p.angsuran.jumlahAngsuranBelumDibayar + 'x angsuran)' : '')], ['Denda', rupiahSurat(p.angsuran.denda)], ['Sudah dibayar', rupiahSurat(p.angsuran.sudahDibayar)], ['Total angsuran', rupiahSurat(p.angsuran.totalAngsuran)], ['Jatuh tempo terakhir', p.angsuran.jatuhTempoTeks || p.angsuran.jatuhTempo || '-'], ['Hari keterlambatan', p.angsuran.hariKeterlambatan + ' hari (acuan ' + (tanggalPanjang(p.angsuran.acuanKeterlambatan) || p.angsuran.acuanKeterlambatan) + ')']] },
+    { title: 'Kendaraan jaminan', source: 'Form debitur', rows: [['Merk / type', p.kendaraan.merkType || '-'], ['Nomor polisi', p.kendaraan.nomorPolisi || '-']] },
+    { title: 'Mitra DC penagih', source: 'Tim & Mitra', rows: [['Nama penagih', p.mitra.nama || '-'], ['Jenis personel', p.mitra.tipe || '-'], ['NIK', p.mitra.nik || '-'], ['Jabatan', p.mitra.jabatan || '-'], ['Rekening', p.mitra.rekening || '-']]}
+  ];
+}
+/** Catatan kelengkapan payload sebelum dokumen dicetak. */
+function letterPayloadIssues(p) {
+  const issues = [];
+  const wajib = (label, message) => issues.push({ level: 'wajib', label, message });
+  const periksa = (label, message) => issues.push({ level: 'periksa', label, message });
+  if (!p.debitur.id) wajib('Debitur', 'Pilih debitur agar seluruh isian surat terisi otomatis.');
+  if (!p.penugasan.kasusId) wajib('Kasus piutang', 'Pilih kasus piutang debitur untuk menerbitkan penugasan.');
+  if (!p.mitra.id) wajib('Mitra DC penagih', 'Pilih petugas penagih sebagai penerima tugas.');
+  else if (p.mitra.tipe !== 'Mitra DC') periksa('Mitra DC penagih', p.mitra.nama + ' berjenis ' + (p.mitra.tipe || '-') + ', bukan Mitra DC.');
+  if (p.mitra.id && !p.mitra.nik) periksa('NIK penagih', 'NIK penagih kosong. Lengkapi pada menu Tim & Mitra.');
+  if (!p.penugasan.tanggalTerbit) wajib('Tanggal terbit', 'Tanggal terbit surat belum diisi.');
+  if (!p.penugasan.nomor) periksa('Nomor surat', 'Nomor surat terbit otomatis setelah penugasan disimpan.');
+  if (p.debitur.id && !p.debitur.nik) periksa('NIK debitur', 'NIK debitur kosong sehingga tidak tercetak pada surat.');
+  if (p.debitur.id && !p.debitur.kontrak) periksa('No. kontrak', 'Nomor kontrak debitur kosong.');
+  if (p.debitur.id && !p.debitur.alamatLengkap) periksa('Alamat debitur', 'Alamat domisili debitur belum lengkap.');
+  if (!p.angsuran.jatuhTempo) periksa('Jatuh tempo', 'Tanggal jatuh tempo pembayaran terakhir belum ada pada data debitur.');
+  if (!p.angsuran.angsuranBulan) periksa('Angsuran / bulan', 'Besar angsuran per bulan masih nol pada data debitur.');
+  if (!p.angsuran.sisaAngsuran) periksa('Angsuran belum dibayar', 'Tidak ada sisa angsuran; seluruh tagihan tercatat lunas.');
+  if (!p.angsuran.denda) periksa('Denda', 'Denda pada data debitur masih nol.');
+  if (!p.angsuran.hariKeterlambatan) periksa('Keterlambatan', 'Belum ada hari keterlambatan terhadap tanggal jatuh tempo.');
+  if (p.debitur.id && !p.kendaraan.merkType && !p.kendaraan.nomorPolisi) periksa('Kendaraan', 'Merk/type dan nomor polisi kendaraan belum diisi.');
+  if (!p.agensi.jabatan) periksa('Jabatan penandatangan', 'Jabatan penandatangan kosong. Lengkapi pada Pengaturan.');
+  return issues;
+}
+/** Nama file dokumen: ST-{inisial kreditur}-{nama debitur}-{kecamatan}. */
+function letterFileName(p) {
+  const kreditur = p.kreditur.nama ? slugifyText(inisialKreditur(p.kreditur.nama)) : 'KREDITUR';
+  return [p.penugasan.jenis === 'Surat Kuasa' ? 'SK' : 'ST', kreditur, slugifyText(p.debitur.nama) || 'NAMA-DEBITUR', slugifyText(p.debitur.kecamatan) || 'KECAMATAN'].filter(Boolean).join('-');
+}
+/** Lembar surat A4: identitas, penerima tugas (mitra DC), data debitur, dan rincian angsuran. */
+function letterPaperHTML(p) {
+  const kuasa = p.penugasan.jenis === 'Surat Kuasa';
+  const rows = list => '<dl>' + list.filter(row => row[1] && row[1] !== '-').map(row => '<div><dt>' + escapeHTML(row[0]) + '</dt><dd>' + escapeHTML(row[1]) + '</dd></div>').join('') + '</dl>';
+  return '<header class="letterhead"><h2>' + escapeHTML(p.agensi.nama || 'ARMS') + '</h2><small>ACCOUNT RECEIVABLES MANAGEMENT</small><p>' + escapeHTML(p.agensi.alamat || '-') + '</p></header>' +
+    '<div class="paper-title"><h1>' + (kuasa ? 'SURAT KUASA PENAGIHAN' : 'SURAT TUGAS PENAGIHAN') + '</h1><p>Nomor: ' + escapeHTML(p.penugasan.nomor || '[NOMOR OTOMATIS]') + '</p>' + (p.penugasan.status !== 'Aktif' ? '<div class="paper-status">' + escapeHTML(p.penugasan.status.toUpperCase()) + '</div>' : '') + '</div>' +
+    '<div class="paper-body"><p>Yang bertanda tangan di bawah ini:</p>' +
+    rows([[kuasa ? 'Nama' : 'Perusahaan', kuasa ? p.kreditur.pic || p.kreditur.nama : p.kreditur.nama || '[Nama kreditur]'], [kuasa ? 'Alamat' : 'Diwakili oleh', kuasa ? p.kreditur.alamat : p.kreditur.pic || '[Perwakilan kreditur]']]) +
+    '<p>Selanjutnya disebut <strong>' + (kuasa ? 'Pemberi Kuasa' : 'Pemberi Tugas') + '</strong>, dengan ini memberikan ' + (kuasa ? 'kuasa' : 'tugas') + ' penagihan kepada mitra penagih:</p>' +
+    rows([['Nama', p.mitra.nama || '[Nama penagih]'], ['NIK', p.mitra.nik || '-'], ['Jabatan', p.mitra.jabatan || '-'], ['Status', p.mitra.tipe || '-'], ['Agensi', p.agensi.nama || '-']]) +
+    '<p>Untuk melakukan konfirmasi, penagihan, dan negosiasi penyelesaian kewajiban atas debitur <strong>' + escapeHTML(p.kreditur.nama || '[Kreditur]') + '</strong> dengan data sebagai berikut:</p>' +
+    '<div class="paper-debtor">' + rows([['Nama debitur', p.debitur.nama || '[Nama debitur]'], ['NIK', p.debitur.nik || '-'], ['No. kontrak', p.debitur.kontrak || '-'], ['No. handphone', p.debitur.telepon || '-'], ['Pekerjaan', p.debitur.pekerjaan || '-'], ['Alamat domisili', p.debitur.alamatLengkap || '-'], ['No. kasus', p.penugasan.kasusNomor || '-'], ['Merk / type', p.kendaraan.merkType || '-'], ['Nomor polisi', p.kendaraan.nomorPolisi || '-']]) + '</div>' +
+    '<p>Rincian kewajiban angsuran debitur pada saat surat ini diterbitkan:</p>' +
+    '<div class="paper-debtor">' + rows([['Angsuran / bulan', rupiahSurat(p.angsuran.angsuranBulan)], ['Angsuran belum dibayar', rupiahSurat(p.angsuran.sisaAngsuran) + (p.angsuran.jumlahAngsuranBelumDibayar ? ' (' + p.angsuran.jumlahAngsuranBelumDibayar + 'x angsuran)' : '')], ['Denda', rupiahSurat(p.angsuran.denda)], ['Sudah dibayar', rupiahSurat(p.angsuran.sudahDibayar)], ['Total angsuran', rupiahSurat(p.angsuran.totalAngsuran)], ['Jatuh tempo terakhir', p.angsuran.jatuhTempoTeks || p.angsuran.jatuhTempo || '-'], ['Keterlambatan', p.angsuran.hariKeterlambatan + ' hari']]) + '</div>' +
+    '<p>Penerima ' + (kuasa ? 'kuasa' : 'tugas') + ' wajib melaksanakan penagihan secara profesional, mengutamakan musyawarah, tidak menerima pembayaran tunai di luar kanal resmi, menjaga kerahasiaan data debitur, serta mematuhi Kode Etik Penagihan dan peraturan perundang-undangan yang berlaku. Surat ini tidak memberikan kewenangan untuk melakukan intimidasi, kekerasan, atau pengambilan aset secara sepihak.</p>' +
+    '<p>Demikian ' + (kuasa ? 'surat kuasa' : 'surat tugas') + ' ini dibuat untuk dipergunakan sebagaimana mestinya dan berlaku sesuai masa penugasan dalam sistem ARMS.</p>' +
+    '<div class="paper-date">' + escapeHTML(p.penugasan.tempat || '[Tempat]') + ', ' + escapeHTML(tanggalPanjang(p.penugasan.tanggalTerbit) || p.penugasan.tanggalTerbit || '-') + '</div>' +
+    '<div class="signatures"><div><span>' + (kuasa ? 'Pemberi Kuasa' : 'Pemberi Tugas') + '</span><div class="signature-space"></div><strong>' + escapeHTML(p.agensi.penandatangan || '[Penandatangan]') + '</strong>' + (p.agensi.jabatan ? '<em>' + escapeHTML(p.agensi.jabatan) + '</em>' : '') + '</div>' +
+    '<div><span>' + (kuasa ? 'Penerima Kuasa' : 'Penerima Tugas') + '</span><div class="signature-space"></div><strong>' + escapeHTML(p.mitra.nama || '[Nama penagih]') + '</strong>' + (p.mitra.jabatan ? '<em>' + escapeHTML(p.mitra.jabatan) + '</em>' : '') + '</div></div></div>' +
+    '<footer class="paper-footer"><span>Dokumen diterbitkan melalui ARMS</span><span>' + escapeHTML(p.penugasan.nomor || 'DRAFT') + ' | 1 / 1</span></footer>';
+}
+function renderLetterPayload() {
+  if (!ARMS.letter) return;
+  const payload = buildLetterPayload(), issues = letterPayloadIssues(payload), name = letterFileName(payload);
+  const paper = $('#print-document');
+  if (paper) paper.innerHTML = letterPaperHTML(payload);
+  const fileName = $('#letter-payload-file');
+  if (fileName) fileName.textContent = name + '.pdf';
+  const status = $('#letter-payload-status');
+  const wajib = issues.filter(issue => issue.level === 'wajib').length;
+  if (status) status.innerHTML = badge(wajib ? 'Dicabut' : issues.length ? 'Draft' : 'Aktif') + '<span>' + (wajib ? wajib + ' isian wajib belum lengkap' : issues.length ? issues.length + ' isian perlu diperiksa' : 'Payload lengkap') + '</span>';
+  const source = $('#letter-payload-source');
+  if (source) source.innerHTML = (issues.length ? '<div class="payload-issues"><strong>' + icon('help') + (wajib ? wajib + ' isian wajib belum lengkap' : issues.length + ' isian perlu diperiksa') + '</strong><ul>' + issues.slice(0, 8).map(issue => '<li class="' + issue.level + '"><span>' + escapeHTML(issue.label) + '</span>' + escapeHTML(issue.message) + '</li>').join('') + '</ul>' + (issues.length > 8 ? '<small>' + (issues.length - 8) + ' catatan lain disembunyikan.</small>' : '') + '</div>' : '') +
+    letterPayloadGroups(payload).map(group => '<div class="payload-group"><div class="payload-group-head"><h3>' + escapeHTML(group.title) + '</h3><span>' + escapeHTML(group.source) + '</span></div><dl>' + group.rows.map(row => '<div><dt>' + escapeHTML(row[0]) + '</dt><dd>' + escapeHTML(row[1]) + '</dd></div>').join('') + '</dl></div>').join('');
+  ARMS.letterPayload = payload;
+}
+async function copyLetterPayload() {
+  const text = JSON.stringify(buildLetterPayload(), null, 2);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else throw new Error('Clipboard tidak tersedia.');
+    toast('Payload JSON disalin ke clipboard.');
+  } catch (error) { toast('Browser menolak akses clipboard. Gunakan Unduh JSON.', true); }
+}
+function downloadLetterPayload() {
+  const payload = buildLetterPayload();
+  download(letterFileName(payload) + '.json', JSON.stringify(payload, null, 2));
+  toast('Payload JSON diunduh.');
+}
+function printLetterDocument() {
+  const name = letterFileName(buildLetterPayload()), previous = document.title;
+  document.title = name;
+  const restore = () => { document.title = previous; };
+  window.addEventListener('afterprint', restore, { once: true });
+  setTimeout(restore, 3000);
+  setTimeout(() => window.print(), 250);
+}
+
 function renderLetterWorkspace() {
   const l = ARMS.letter, c = recordById('cases', l.caseId), stored = l.id ? recordById('letters', l.id) : null;
   l.customerId = l.customerId || (c || {}).customerId || '';
   const relationLocked = !!(stored && stored.pdfUrl) || ARMS.db.collections.some(log => l.id && log.letterId === l.id);
   const options = [{ value: '', label: 'Pilih kasus terkait' }].concat(ARMS.db.cases.filter(item => item.customerId === l.customerId).map(item => ({ value: item.id, label: item.number + ' / ' + item.client })));
   const multi = !c || c.clientType !== 'PERORANGAN';
+  const angsuran = buildLetterPayload().angsuran;
   $('#module-letters').innerHTML = '<div class="stack"><div class="letter-editor-tools no-print"><button class="text-button" data-action="back-letters">&larr; Kembali ke daftar surat</button><span>Penugasan & arsip PDF</span></div>' +
     '<form id="letter-form" class="panel no-print"><div class="panel-head"><div><h2>Parameter Surat Tugas & Kuasa</h2><p>Kelola penugasan dan arsip dokumen PDF.</p></div>' + icon('file') + '</div><fieldset id="letter-metadata-fields" class="letter-metadata-fieldset"><div class="letter-fields-grid">' +
     field('Debitur', 'customerId', l.customerId, { options: customerOptions(), required: true, disabled: relationLocked }) +
@@ -24,16 +200,27 @@ function renderLetterWorkspace() {
     field('Status', 'status', l.status, { options: ['Aktif', 'Draft', 'Selesai', 'Dicabut'] }) +
     field('Tanggal terbit', 'issuedAt', l.issuedAt, { type: 'date', required: true }) +
     field('Berlaku sampai', 'validUntil', l.validUntil, { type: 'date' }) +
-    field('Petugas', 'personnelId', l.personnelId, { options: personnelOptions(), required: true, disabled: relationLocked }) +
+    field('Mitra DC / petugas penagih', 'personnelId', l.personnelId, { options: collectorOptions(), required: true, disabled: relationLocked, hint: 'Mitra DC tampil lebih dahulu sebagai penagih.' }) +
     field('Penandatangan', 'signer', l.signer, { required: true }) +
     field('Tempat', 'place', l.place, { required: true }) +
     field(multi ? 'Perwakilan klien / jabatan' : 'Pemberi kuasa', 'clientRepresentative', l.clientRepresentative, { required: true }) +
     (!multi ? field('Alamat pemberi kuasa', 'clientAddress', l.clientAddress, { textarea: true, full: true, required: true }) : '') +
+    '<div class="letter-angsuran-title span-2"><h3>Rincian angsuran debitur</h3><span>Otomatis dari data debitur & pembayaran kasus</span></div>' +
+    field('Angsuran / bulan', 'payloadAngsuran', rupiahSurat(angsuran.angsuranBulan), { disabled: true, hint: 'Besar angsuran per bulan.' }) +
+    field('Angsuran belum dibayar', 'payloadSisa', rupiahSurat(angsuran.sisaAngsuran), { disabled: true, hint: angsuran.jumlahAngsuranBelumDibayar ? 'Setara ' + angsuran.jumlahAngsuranBelumDibayar + 'x angsuran.' : 'Seluruh angsuran tercatat lunas.' }) +
+    field('Denda', 'payloadDenda', rupiahSurat(angsuran.denda), { disabled: true }) +
+    field('Jatuh tempo terakhir', 'payloadJatuhTempo', angsuran.jatuhTempoTeks || angsuran.jatuhTempo || 'Belum ada tanggal', { disabled: true, hint: 'Tanggal pembayaran terakhir.' }) +
+    field('Hari keterlambatan', 'payloadKeterlambatan', angsuran.hariKeterlambatan + ' hari', { disabled: true, hint: 'Dihitung sampai ' + angsuran.acuanKeterlambatan + '.' }) +
     field('Catatan update SK', 'updateNote', l.updateNote, { textarea: true, full: true, hint: 'Isi perkembangan untuk memperbarui reminder laporan.' }) +
     '<div id="letter-error" class="inline-error span-2" hidden></div></div><footer class="letter-metadata-footer"><span id="letter-save-state">' + (l.saved ? 'PENUGASAN TERSIMPAN' : 'BELUM DISIMPAN') + '</span><div class="letter-save-actions"><a class="btn" href="' + LETTER_GENERATOR_URL + '" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">' + icon('arrow') + 'Buka Generator Surat</a><button class="btn primary" id="save-letter-button" type="submit"' + (!l.caseId ? ' disabled' : '') + '>' + icon('save') + 'Simpan Penugasan</button></div></footer></fieldset></form>' +
+    '<section class="panel letter-payload-panel" id="letter-payload-section"><div class="panel-head no-print"><div><h2>Payload Surat &amp; PDF (Otomatis)</h2><p>Diisi otomatis dari data debitur, rincian angsuran, dan mitra DC sebagai penagih.</p></div><div class="payload-status" id="letter-payload-status"></div></div>' +
+    '<div class="letter-payload-body"><div class="payload-source no-print" id="letter-payload-source"></div>' +
+    '<div class="payload-preview"><div class="paper-label no-print"><span>Pratinjau dokumen &middot; A4 portrait</span><span id="letter-payload-file"></span></div><div class="paper-viewport"><div class="a4-paper" id="print-document"></div></div></div></div>' +
+    '<footer class="letter-payload-footer no-print"><span>Payload tersimpan otomatis pada penugasan saat <strong>Simpan Penugasan</strong>.</span><div class="letter-save-actions"><button type="button" class="btn" data-action="copy-letter-payload">' + icon('save') + 'Salin Payload JSON</button><button type="button" class="btn" data-action="download-letter-payload">' + icon('download') + 'Unduh JSON</button><a class="btn" href="' + LETTER_GENERATOR_URL + '" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">' + icon('arrow') + 'Generator Eksternal</a><button type="button" class="btn primary" data-action="print-letter">' + icon('print') + 'Cetak / Simpan PDF</button></div></footer></section>' +
     '<section id="letter-pdf-section" class="panel no-print"></section></div>';
   if (!letterPdfState || letterPdfState.letterId !== l.id || (stored && letterPdfState.previous !== (stored.pdfUrl || ''))) letterPdfState = null;
   renderLetterPdfForm();
+  renderLetterPayload();
 }
 
 function pdfSizeLabel(value) {

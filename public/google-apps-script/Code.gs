@@ -213,6 +213,16 @@ function percent_(value) {
   if (!isFinite(n) || n < 0 || n > 100) throw new Error('Persentase harus antara 0 dan 100.');
   return n;
 }
+/** Payload surat otomatis (data debitur, angsuran, mitra DC) ikut disimpan pada penugasan. */
+function generatorData_(value, fallback) {
+  var text = String(value == null ? '' : value).trim();
+  if (!text) return fallback || '';
+  if (text.length > 60000) throw new Error('Payload generator melebihi 60000 karakter.');
+  var parsed;
+  try { parsed = JSON.parse(text); } catch (error) { throw new Error('Payload generator bukan JSON yang valid.'); }
+  if (!parsed || typeof parsed !== 'object' || Object.prototype.toString.call(parsed) === '[object Array]') throw new Error('Payload generator harus berupa objek JSON.');
+  return text;
+}
 function date_(value) {
   var text = required_(value, 'Tanggal');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || isNaN(Date.parse(text)) || new Date(text).toISOString().slice(0, 10) !== text) throw new Error('Tanggal tidak valid.');
@@ -317,8 +327,8 @@ function normalize_(name, data, existing) {
     if (['Aktif', 'Draft', 'Selesai', 'Dicabut'].indexOf(record.status) < 0) throw new Error('Status surat tidak valid.');
     record.validUntil = String(record.validUntil || '');
     if (record.validUntil) { date_(record.validUntil); if (record.validUntil < record.issuedAt) throw new Error('Berlaku sampai tidak boleh sebelum tanggal terbit.'); }
-    // Legacy drafts remain in Sheets; PDF metadata is only changed by uploadSKPdf.
-    record.generatorData = existing ? existing.generatorData || '' : '';
+    // Payload surat otomatis dikirim frontend; PDF metadata is only changed by uploadSKPdf.
+    record.generatorData = generatorData_(record.generatorData, existing ? existing.generatorData || '' : '');
     ['pdfUrl', 'pdfName', 'pdfUploadedAt', 'pdfUploadId'].forEach(function (key) { record[key] = existing ? existing[key] || '' : ''; });
     record.pdfSize = existing ? Number(existing.pdfSize || 0) : 0;
     record.updateNote = String(record.updateNote || '').trim();

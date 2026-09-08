@@ -2,6 +2,7 @@ import { calculatePayment, canReceivePayment, createSeed, getPaid, isoToday, pos
 import { clearPhotos, pdfUploadBlob, removePhoto, safePdfName, storePdf, storePhoto } from './documents';
 import { validateFinanceRecord } from './finance';
 import { migrateCrm, normalizeCrmRecord, syncCrmRelations, validDate } from './crm';
+import { PAYLOAD_LIMIT } from './letterPayload';
 
 interface ApiResponse<T> { status: 'success' | 'error'; data: T; message: string }
 interface ScriptRunner {
@@ -92,6 +93,17 @@ const endpoints: Record<Entity, string> = { clients: 'Client', collections: 'Col
 function validateNumber(n: unknown, label: string, max = 1e15) {
   if (!Number.isFinite(Number(n)) || Number(n) < 0 || Number(n) > max) throw new Error(`${label} tidak valid.`);
 }
+/** Payload surat otomatis ikut disimpan pada penugasan; nilai lama dipertahankan bila payload kosong. */
+function normalizeGeneratorData(value: unknown, fallback?: string) {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback || '';
+  if (text.length > PAYLOAD_LIMIT) throw new Error(`Payload generator melebihi ${PAYLOAD_LIMIT} karakter.`);
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); }
+  catch { throw new Error('Payload generator bukan JSON yang valid.'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Payload generator harus berupa objek JSON.');
+  return text;
+}
 export async function saveRecord(db: Database, entity: Entity, values: Partial<RecordData>, id?: string): Promise<Database> {
   if (['clients', 'cases', 'collections'].includes(entity)) {
     const existing = (db[entity] as RecordData[]).find(r => r.id === id);
@@ -152,7 +164,7 @@ export async function saveRecord(db: Database, entity: Entity, values: Partial<R
     if (c.clientType === 'PERORANGAN' && !letter.clientAddress?.trim()) throw new Error('Alamat pemberi kuasa wajib diisi.');
     validDate(letter.issuedAt, 'Tanggal terbit');
     if (letter.validUntil) { validDate(letter.validUntil, 'Berlaku sampai'); if (letter.validUntil < letter.issuedAt) throw new Error('Masa berlaku tidak boleh sebelum tanggal terbit.'); }
-    letter.generatorData = old?.generatorData || '';
+    letter.generatorData = normalizeGeneratorData(letter.generatorData, old?.generatorData);
     letter.pdfUrl = old?.pdfUrl || ''; letter.pdfName = old?.pdfName || ''; letter.pdfSize = old?.pdfSize || 0;
     letter.pdfUploadedAt = old?.pdfUploadedAt || ''; letter.pdfUploadId = old?.pdfUploadId || '';
     if ((letter.updateNote || '').length > 2000) throw new Error('Catatan update maksimal 2000 karakter.');

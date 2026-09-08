@@ -8,11 +8,11 @@ Paket Google Apps Script Web App dengan database Google Sheets, frontend Vanilla
 | --- | --- |
 | Code.gs | Satu-satunya file backend: doGet, inisialisasi spreadsheet, CRUD, JOIN, autentikasi, validasi CRM, logo/kop surat, dokumen personel (KTP/SPPI), arsip PDF surat, proposal, impor batch, dan audit read-only |
 | Index.html | Shell SPA, sidebar, header, dialog, dan modul aplikasi |
-| js_main.html | JavaScript modular, Promise google.script.run, formulir, kalkulasi, ekspor, dan surat |
+| js_main.html | JavaScript modular, Promise google.script.run, formulir, kalkulasi, ekspor, dan penyimpanan payload surat |
 | js_customer.html | Form debitur, pilihan wilayah bertingkat, dan unggahan foto KTP/STNK |
 | js_crm.html | Master klien, form kasus baru, log komunikasi, dan alur log-ke-pembayaran |
 | js_operations.html | Status proses debitur, eksekusi unit, rekening, dan mutasi fee |
-| js_letters.html | Form penugasan, tautan generator, upload dan unduh PDF surat |
+| js_letters.html | Form penugasan, payload surat otomatis dari data debitur & mitra DC, pratinjau/cetak dokumen, tautan generator, upload dan unduh PDF surat |
 | js_workspace.html | Branding (logo + kop surat), dokumen personel KTP/SPPI, form klien dua langkah, dan reminder SK |
 | js_proposal.html | Editor proposal per halaman, pratinjau kertas A4, halaman Tim & Mitra DC dengan foto KTP/SPPI, dan cetak |
 | js_bulk.html | Template/pembacaan Excel, CSV, pemeriksaan baris, dan impor bulk |
@@ -55,10 +55,10 @@ File README ini adalah dokumentasi, bukan file yang perlu ditambahkan ke editor 
 4. Saat mengedit data lama, lengkapi wilayah dan tanggal jatuh tempo. NIK, pekerjaan, serta kontak darurat lama dipertahankan di spreadsheet, tetapi tidak lagi ditampilkan sebagai field form debitur.
 5. Lengkapi PIC, nomor telepon, dan alamat klien LEGACY. Tanggal kasus lama dibaca dari Created At; penanggung jawab awal diambil dari SK aktif bila tersedia. Lengkapi personel jika kasus lama belum memiliki penugasan.
 6. Jalankan `validateWorkspace()` sebagai Administrator dari editor untuk mendapatkan daftar data yang perlu ditinjau. Fungsi ini read-only dan tidak memperbaiki data secara diam-diam.
-7. Sheet SK memperoleh kolom tambahan PDF Surat, Nama File PDF, Ukuran PDF, PDF Uploaded At, dan PDF Upload ID. Kolom Generator Data lama dipertahankan tanpa digunakan pada alur surat baru. Tidak ada tab atau data lama yang dihapus.
+7. Sheet SK memperoleh kolom tambahan PDF Surat, Nama File PDF, Ukuran PDF, PDF Uploaded At, dan PDF Upload ID. Kolom Generator Data kini menyimpan payload surat otomatis (`arms.letter-payload/1`, maksimal 60.000 karakter, divalidasi backend). Tidak ada tab atau data lama yang dihapus.
 8. Setelah deploy, unggah **Kop surat perusahaan** melalui Pengaturan agar cover proposal dicetak dengan banner penuh, lalu lengkapi foto SPPI mitra DC melalui Tim & Mitra.
 
-Form debitur menggunakan tiga bagian dan registrasi klien menggunakan dua bagian, dengan tinggi terbatas viewport. Form surat menyediakan tautan generator di tab baru serta form terpisah untuk mengunggah PDF final.
+Form debitur menggunakan tiga bagian dan registrasi klien menggunakan dua bagian, dengan tinggi terbatas viewport. Form surat menyediakan rincian angsuran otomatis, panel payload surat, tautan generator di tab baru, serta form terpisah untuk mengunggah PDF final.
 
 ## Identitas Dan Akses
 
@@ -223,12 +223,14 @@ Backend menghitung ulang semuanya sebelum menyimpan. Mengubah nilai ringkasan me
 
 1. Buka **Surat Tugas & Kuasa > Buat Surat**, pilih debitur, kasus, dan personel, lalu lengkapi parameter penugasan.
 2. Klik **Simpan Penugasan** untuk memperoleh nomor internal ARMS.
-3. Tautan **Buka Generator Surat** di samping Simpan Penugasan membuka `https://generator-surat-new.vercel.app/` pada tab baru. Tidak ada iframe, pengambilan build GitHub, autofill, atau pengiriman data otomatis dari ARMS.
-4. Buat dokumen di generator dan simpan hasilnya sebagai PDF. Isi dan nomor pada PDF harus diperiksa operator agar sesuai dengan penugasan.
-5. Kembali ke ARMS. Gunakan form **Upload PDF Surat Tugas / Kuasa** di bawah form penugasan. Pilih file `.pdf`, maksimal 5 MB, lalu klik **Upload PDF Surat**.
-6. Memilih file hanya membaca dan memvalidasinya di browser. File baru dikirim ke backend ketika tombol upload ditekan. Form upload tidak aktif jika penugasan belum tersimpan atau masih memiliki perubahan yang belum disimpan.
-7. Setelah berhasil, nama file, ukuran, serta tanggal unggah tampil. **Unduh PDF** tersedia pada form upload, tabel surat, dan detail surat.
-8. Untuk mengganti file, pilih PDF pengganti lalu klik **Ganti PDF Surat**. File lama dipindahkan ke Trash setelah referensi PDF baru tersimpan. Unduh salinan lama dahulu jika diperlukan untuk arsip.
+3. Blok **Rincian angsuran debitur** pada form dan panel **Payload Surat & PDF (Otomatis)** terisi sendiri dari database: angsuran per bulan, angsuran belum dibayar beserta perkiraan banyaknya angsuran, denda, tanggal jatuh tempo terakhir, dan jumlah hari keterlambatan. Identitas debitur, kendaraan, kreditur, agensi, serta mitra DC sebagai penagih ikut tersusun tanpa diketik ulang. Dropdown petugas menampilkan Mitra DC lebih dahulu.
+4. Panel payload menampilkan sumber data per kelompok, isian yang masih perlu diperiksa, pratinjau dokumen A4, serta tombol **Cetak / Simpan PDF**, **Salin Payload JSON**, **Unduh JSON**, dan **Generator Eksternal**. Payload ikut tersimpan pada kolom Generator Data saat Simpan Penugasan.
+5. Tautan **Buka Generator Surat** di samping Simpan Penugasan membuka `https://generator-surat-new.vercel.app/` pada tab baru. Tidak ada iframe, pengambilan build GitHub, autofill, atau pengiriman data otomatis dari ARMS; tempel payload JSON bila menyusun dokumen di sana.
+6. Buat dokumen di generator atau cetak langsung dari ARMS, lalu simpan hasilnya sebagai PDF. Isi dan nomor pada PDF harus diperiksa operator agar sesuai dengan penugasan.
+7. Kembali ke ARMS. Gunakan form **Upload PDF Surat Tugas / Kuasa** di bawah panel payload. Pilih file `.pdf`, maksimal 5 MB, lalu klik **Upload PDF Surat**.
+8. Memilih file hanya membaca dan memvalidasinya di browser. File baru dikirim ke backend ketika tombol upload ditekan. Form upload tidak aktif jika penugasan belum tersimpan atau masih memiliki perubahan yang belum disimpan.
+9. Setelah berhasil, nama file, ukuran, serta tanggal unggah tampil. **Unduh PDF** tersedia pada form upload, tabel surat, dan detail surat.
+10. Untuk mengganti file, pilih PDF pengganti lalu klik **Ganti PDF Surat**. File lama dipindahkan ke Trash setelah referensi PDF baru tersimpan. Unduh salinan lama dahulu jika diperlukan untuk arsip.
 
 Validasi frontend dan backend memeriksa ekstensi, MIME, ukuran, base64, header `%PDF-x.x`, serta penanda `%%EOF` di bagian akhir. Ini adalah pemeriksaan format dasar, bukan pemindaian malware, parsing lengkap PDF, atau verifikasi keabsahan hukum surat. Unggah hanya dokumen dari sumber yang dipercaya.
 
@@ -352,6 +354,7 @@ Daftar kabupaten/kota dan kecamatan dimuat dari `https://www.emsifa.com/api-wila
 8. Coba klik Simpan berulang saat loading. Hanya satu aksi UI yang diproses.
 9. Uji akses dengan email yang tidak terdaftar dan Collector yang mencoba menghapus data. Server harus menolak.
 10. Pastikan tidak ada generator tertanam pada halaman surat. Klik Buka Generator Surat di samping Simpan Penugasan; URL yang dituju harus tepat dan terbuka di tab baru tanpa parameter pribadi.
+10a. Periksa payload surat otomatis: ubah denda, angsuran, atau tanggal jatuh tempo debitur lalu buka kembali penugasan. Nilai pada form, panel payload, dan pratinjau dokumen harus ikut berubah, termasuk hari keterlambatan. Simpan penugasan dan pastikan kolom Generator Data pada sheet SK terisi JSON `arms.letter-payload/1`.
 11. Pilih kabupaten/kota, periksa daftar kecamatan, lalu ganti kota. Pilihan kecamatan dan kelurahan lama harus dikosongkan. Uji juga mode input manual saat offline.
 12. Unggah KTP dan STNK, simpan, muat ulang, lalu unduh foto dari detail debitur. Ganti satu foto tanpa mengubah foto lainnya. File dengan format tidak didukung atau ukuran di atas 2 MB harus ditolak.
 13. Perkecil tinggi jendela sampai 500 px. Navigasi dan footer form debitur harus tetap dapat diakses; bagian isi bergulir tanpa menutupi tombol. Pindah antarbagian dan pastikan seluruh nilai tetap ada.

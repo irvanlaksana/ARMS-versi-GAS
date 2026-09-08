@@ -440,18 +440,12 @@ function renderLetters() {
   if (!ARMS.letter) { $('#module-letters').innerHTML = '<section class="panel no-print" id="letters-container">' + tableHTML('letters', 'letters') + '</section>'; return; }
   renderLetterWorkspace();
 }
-function renderPaper() {
-  if (!ARMS.letter || !$('#print-document')) return;
-  const l = ARMS.letter, db = ARMS.db, c = recordById('cases', l.caseId), customer = customerFor(c), person = recordById('personnel', l.personnelId), multi = !c || c.clientType !== 'PERORANGAN';
-  const dl = rows => '<dl>' + rows.filter(row => row[0] !== 'NIK' || (customer && customer.nik)).map(row => '<div><dt>' + escapeHTML(row[0]) + '</dt><dd>' + escapeHTML(row[1] || '-') + '</dd></div>').join('') + '</dl>';
-  $('#print-document').innerHTML = '<header class="letterhead"><h2>' + escapeHTML(db.settings.agency) + '</h2><small>ACCOUNT RECEIVABLES MANAGEMENT</small><p>' + escapeHTML(db.settings.address) + '</p></header><div class="paper-title"><h1>' + (multi ? 'SURAT TUGAS PENAGIHAN' : 'SURAT KUASA PENAGIHAN') + '</h1><p>Nomor: ' + escapeHTML(l.number || '[NOMOR OTOMATIS]') + '</p>' + (l.status !== 'Aktif' ? '<div class="paper-status">' + escapeHTML(l.status.toUpperCase()) + '</div>' : '') + '</div><div class="paper-body"><p>Yang bertanda tangan di bawah ini:</p>' + dl([[multi ? 'Perusahaan' : 'Nama', multi ? (c || {}).client || '[Nama klien]' : l.clientRepresentative || '[Pemberi kuasa]'], [multi ? 'Diwakili oleh' : 'Alamat', multi ? l.clientRepresentative || '[Perwakilan klien]' : l.clientAddress || '[Alamat pemberi kuasa]']]) + '<p>Selanjutnya disebut <strong>' + (multi ? 'Pemberi Tugas' : 'Pemberi Kuasa') + '</strong>, dengan ini memberikan ' + (multi ? 'tugas' : 'kuasa') + ' kepada:</p>' + dl([['Nama', (person || {}).name || '[Nama petugas]'], ['Status', (person || {}).type || '[Tipe personel]'], ['Agensi', db.settings.agency]]) + '<p>Untuk melakukan kegiatan penagihan dan penyelesaian kewajiban atas debitur dengan informasi sebagai berikut:</p><div class="paper-debtor">' + dl([['Nama debitur', (customer || {}).name || '[Nama debitur]'], ['NIK', (customer || {}).nik || '[NIK debitur]'], ['Alamat', (customer || {}).address || '[Alamat debitur]'], ['No. kontrak', (c || {}).contract || '[Nomor kontrak]'], ['No. kasus', (c || {}).number || '[Nomor kasus]'], ['Total kewajiban', rupiah((c || {}).principal)], ['Objek / aset', (c || {}).asset || (customer || {}).vehicle || '-']]) + '</div><p>Penerima ' + (multi ? 'tugas' : 'kuasa') + ' wajib melaksanakan penagihan secara profesional, mengutamakan musyawarah, menjaga kerahasiaan data debitur, serta mematuhi peraturan perundang-undangan yang berlaku. Surat ini tidak memberikan kewenangan untuk melakukan intimidasi, kekerasan, atau pengambilan aset secara sepihak.</p><p>Demikian surat ini dibuat untuk dipergunakan sebagaimana mestinya dan berlaku sesuai status penugasan dalam sistem ARMS.</p><div class="paper-date">' + escapeHTML(l.place || '[Tempat]') + ', ' + escapeHTML(dateLabel(l.issuedAt)) + '</div><div class="signatures"><div><span>' + (multi ? 'Pemberi Tugas / Agensi' : 'Pemberi Kuasa') + '</span><div class="signature-space"></div><strong>' + escapeHTML(multi ? l.signer || '[Penandatangan]' : l.clientRepresentative || '[Pemberi kuasa]') + '</strong></div><div><span>' + (multi ? 'Penerima Tugas' : 'Penerima Kuasa') + '</span><div class="signature-space"></div><strong>' + escapeHTML((person || {}).name || '[Nama petugas]') + '</strong></div></div></div><footer class="paper-footer"><span>Dokumen diterbitkan melalui ARMS</span><span>' + escapeHTML(l.number || 'DRAFT') + ' | 1 / 1</span></footer>';
-  $('#letter-save-state').textContent = l.saved ? 'TERSIMPAN' : 'BELUM DISIMPAN';
-}
 async function submitLetter(form) {
   if (ARMS.locked) return; ARMS.locked = true;
   const data = Object.assign({}, ARMS.letter, Object.fromEntries(new FormData(form)));
   delete data.saved;
-  delete data.generatorData;
+  // Payload surat disusun otomatis dari data debitur, angsuran, dan mitra DC penagih.
+  data.generatorData = JSON.stringify(buildLetterPayload());
   try {
     const saved = await rpc(data.id ? 'updateSK' : 'addSK', ...(data.id ? [data.id, data] : [data]));
     const previous = data.id ? recordById('letters', data.id) : null;
@@ -569,6 +563,9 @@ document.addEventListener('click', async event => {
   if (action === 'sk-report') { const l = recordById('letters', id); if (l) openForm('collections', null, { letterId: l.id, caseId: l.caseId, personnelId: l.personnelId, activityDate: crmToday(), actionPlan: 'Laporan perkembangan penugasan ' + l.number }); return; }
   if (action === 'download-letter-pdf') { downloadLetterPdf(id); return; }
   if (action === 'clear-letter-pdf') { letterPdfState = null; renderLetterPdfForm(); return; }
+  if (action === 'copy-letter-payload') { copyLetterPayload(); return; }
+  if (action === 'download-letter-payload') { downloadLetterPayload(); return; }
+  if (action === 'print-letter') { printLetterDocument(); return; }
   if (proposalActions(button)) return;
   if (crmActions(button)) return;
   if (action === 'add' || action === 'edit') return openForm(entity, id || undefined);

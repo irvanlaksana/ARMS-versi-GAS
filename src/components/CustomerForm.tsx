@@ -141,5 +141,5 @@ export function PhotoPicker({ label, upload, existingName, loading, disabled, on
     {photoUrl && <img src={photoUrl} alt={label} className="photo-preview" />}
     <span><strong>{loading ? 'Membaca foto...' : attached || `Upload ${label}`}</strong><small>{attached ? 'Klik untuk mengganti foto' : 'JPG, PNG, WebP. Maks. 2 MB'}</small></span>
     {attached && !loading && <Check className="photo-check" size={15}/>}
-  </label>{attached && <button type="button" className="photo-remove text-button" onClick={onRemove} disabled={disabled || loading}><X size={12}/>Hapus foto</button></div>;
+  </label>{attached && <button type="button" className="photo-remove text-button" onClick={onRemove} disabled={disabled || loading}><X size={12}/>Hapus foto</button>}</div>;
 }
