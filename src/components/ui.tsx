@@ -17,7 +17,7 @@ export function EmptyState({ title = 'Belum ada data', description = 'Data yang 
   return <div className="empty-state"><div className="empty-icon"><Inbox size={25}/></div><h3>{title}</h3><p>{description}</p>{action}</div>;
 }
 export function Field({ label, children, hint, required, className = '' }: { label: string; children: ReactNode; hint?: string; required?: boolean; className?: string }) {
-  return <label className={`field ${className}`}><span className="field-label">{label}{required && <span className="required"> *</span>}</span>{children}{hint && <span className="field-hint">{hint}</span>}</label>;
+  return <div className={`field ${className}`}><span className="field-label">{label}{required && <span className="required"> *</span>}</span>{children}{hint && <span className="field-hint">{hint}</span>}</div>;
 }
 export function Modal({ title, subtitle, children, onClose, wide = false, className = '' }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -40,7 +40,12 @@ export function Modal({ title, subtitle, children, onClose, wide = false, classN
     document.addEventListener('keydown', handle);
     return () => { clearTimeout(timer); document.body.style.overflow = originalOverflow; document.removeEventListener('keydown', handle); previous?.focus(); };
   }, []);
-  return <motion.div className="modal-backdrop no-print" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={e => e.target === e.currentTarget && onClose()}>
+  return <motion.div className="modal-backdrop no-print" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={e => {
+    if (e.target !== e.currentTarget) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && (active.tagName === 'SELECT' || active.tagName === 'OPTION' || active.closest?.('.search-select'))) return;
+    onClose();
+  }}>
     <motion.div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }} transition={{ duration: .2 }}>
       <header className="modal-header"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" onClick={onClose} aria-label="Tutup dialog"><X size={20}/></button></header>{children}
     </motion.div>
