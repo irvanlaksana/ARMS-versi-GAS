@@ -54,11 +54,17 @@ Form Tambah Debitur dibagi menjadi tiga bagian: Debitur & domisili, Angsuran & k
 
 Modul Surat Tugas & Kuasa tidak lagi memuat generator, iframe, atau build GitHub. Tautan **Buka Generator Surat** di samping **Simpan Penugasan** membuka `https://generator-surat-new.vercel.app/` pada tab baru, tanpa mengirim data ARMS otomatis.
 
-Simpan penugasan terlebih dahulu, buat surat di generator eksternal, lalu unggah dokumen final melalui form **Upload PDF Surat Tugas / Kuasa** di bawahnya. PDF maksimal 5 MB, diperiksa ekstensi, MIME, ukuran, header PDF, dan penanda akhir dokumen. PDF dapat diganti atau diunduh dari halaman penugasan, tabel surat, dan detail surat.
+Form penugasan dilengkapi **payload surat otomatis** yang disusun seluruhnya dari database: identitas debitur (nama, NIK, kontrak, telepon, pekerjaan, kontak darurat, alamat domisili), kendaraan jaminan, kreditur/klien, identitas agensi, dan **mitra DC sebagai penagih** (nama, NIK, jabatan, jenis personel, rekening). Dropdown petugas menampilkan Mitra DC lebih dahulu. Tidak ada isian surat yang perlu diketik ulang.
+
+Blok **Rincian angsuran debitur** pada form dan panel payload diisi otomatis dari data debitur serta pembayaran kasusnya: **Angsuran / bulan**, **Angsuran belum dibayar** (total angsuran dikurangi akumulasi pembayaran, lengkap dengan perkiraan banyaknya angsuran), **Denda**, **Tanggal jatuh tempo terakhir pembayaran**, dan **Jumlah hari keterlambatan** terhadap tanggal hari ini (Asia/Jakarta). Nilai berubah sendiri saat data debitur atau pembayaran diperbarui.
+
+Panel **Payload Surat & PDF (Otomatis)** menampilkan seluruh sumber data per kelompok, daftar isian yang masih perlu diperiksa, pratinjau dokumen A4, serta tombol **Cetak / Simpan PDF** (dialog cetak browser), **Salin Payload JSON**, **Unduh JSON**, dan **Generator Eksternal**. Payload memakai versi `arms.letter-payload/1`; blok `suratTugas` memakai nama field generator eksternal sehingga dapat ditempel apa adanya ke sana. Saat **Simpan Penugasan**, payload ikut disimpan pada kolom `Generator Data` sheet SK (maksimal 60.000 karakter, divalidasi sebagai objek JSON di frontend maupun backend).
+
+Simpan penugasan terlebih dahulu, buat surat di generator eksternal atau cetak langsung dari ARMS, lalu unggah dokumen final melalui form **Upload PDF Surat Tugas / Kuasa** di bawahnya. PDF maksimal 5 MB, diperiksa ekstensi, MIME, ukuran, header PDF, dan penanda akhir dokumen. PDF dapat diganti atau diunduh dari halaman penugasan, tabel surat, dan detail surat.
 
 Versi demo menyimpan file PDF di IndexedDB pada browser. Versi GAS menyimpan file di folder Google Drive terbatas dan metadata di sheet SK. Nomor penugasan tidak berubah saat PDF diunggah. File lama hanya dibersihkan setelah unggahan baru tersimpan. Relasi kasus dan petugas tidak dapat diganti jika SK sudah memiliki PDF atau laporan.
 
-Pengunggahan memakai ID request dan pemeriksaan referensi PDF sebelumnya untuk menghindari duplikasi atau penggantian dokumen yang sudah berubah. Kolom Generator Data lama tetap dipertahankan untuk kompatibilitas, tetapi tidak lagi dipakai. Pemeriksaan PDF merupakan validasi format dasar, bukan antivirus atau verifikasi keabsahan isi surat.
+Pengunggahan memakai ID request dan pemeriksaan referensi PDF sebelumnya untuk menghindari duplikasi atau penggantian dokumen yang sudah berubah. Kolom Generator Data kini dipakai untuk menyimpan payload surat otomatis; nilai lama tetap terbaca dan tidak dihapus saat payload baru kosong. Pemeriksaan PDF merupakan validasi format dasar, bukan antivirus atau verifikasi keabsahan isi surat.
 
 ## Impor, Branding, Dan Tim
 

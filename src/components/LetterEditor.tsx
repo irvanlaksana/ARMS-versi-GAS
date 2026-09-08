@@ -1,10 +1,12 @@
-import { useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowLeft, ExternalLink, FileCheck2, FileText, Save } from 'lucide-react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { AlertCircle, ArrowLeft, Coins, ExternalLink, FileCheck2, FileText, LockKeyhole, Save } from 'lucide-react';
 import { useArms } from '../lib/context';
 import { recoverSavedRecord, saveRecord, SavedRecordRefreshError } from '../lib/api';
 import { getAssignee, getCase, getCustomer, isoToday, type Letter } from '../lib/data';
+import { buildLetterPayload, payloadJson, rupiahSurat } from '../lib/letterPayload';
 import { Field, Spinner } from './ui';
 import { LETTER_GENERATOR_URL, LetterPdfUpload } from './LetterPdfUpload';
+import { LetterPayloadPanel } from './LetterPayloadPanel';
 
 export function LetterEditor({ letter, caseId, onBack }: { letter?: Letter; caseId?: string; onBack: () => void }) {
   const { db, setDb, notify } = useArms();
@@ -22,6 +24,10 @@ export function LetterEditor({ letter, caseId, onBack }: { letter?: Letter; case
   const storedLetter = db.letters.find(l => l.id === values.id);
   const working = busy || pdfBusy;
   const relationLocked = !!storedLetter?.pdfUrl || db.collections.some(log => values.id && log.letterId === values.id);
+  /** Payload surat disusun ulang setiap kali data debitur, kasus, atau mitra penagih berubah. */
+  const payload = useMemo(() => buildLetterPayload(db, values, customerId), [db, values, customerId]);
+  const angsuran = payload.payload.angsuran;
+  const mitraDc = db.personnel.filter(p => p.type === 'Mitra DC'), karyawan = db.personnel.filter(p => p.type !== 'Mitra DC');
   function update(key: keyof Letter, value: string) { setValues(v => ({ ...v, [key]: value })); setSaved(false); }
   function chooseCase(id: string) {
     const c = getCase(db, id), client = db.clients.find(client => client.id === c?.clientId);
@@ -32,11 +38,11 @@ export function LetterEditor({ letter, caseId, onBack }: { letter?: Letter; case
     event.preventDefault(); if (working || saveLock.current) return;
     saveLock.current = true; setBusy(true); setError('');
     try {
-      const data: Partial<Letter> = { caseId: values.caseId, personnelId: values.personnelId, issuedAt: values.issuedAt, status: values.status, place: values.place, signer: values.signer, clientRepresentative: values.clientRepresentative, clientAddress: values.clientAddress, validUntil: values.validUntil || '', updateNote: values.updateNote || '' };
+      const data: Partial<Letter> = { caseId: values.caseId, personnelId: values.personnelId, issuedAt: values.issuedAt, status: values.status, place: values.place, signer: values.signer, clientRepresentative: values.clientRepresentative, clientAddress: values.clientAddress, validUntil: values.validUntil || '', updateNote: values.updateNote || '', generatorData: payloadJson(payload.payload) };
       const result = await saveRecord(db, 'letters', data, values.id || undefined);
       const persisted = values.id ? result.letters.find(l => l.id === values.id) : result.letters.find(l => !db.letters.some(previous => previous.id === l.id));
       if (persisted) setValues(persisted);
-      setDb(result); setSaved(true); notify('Penugasan tersimpan. PDF surat dapat diunggah pada form di bawah.');
+      setDb(result); setSaved(true); notify('Penugasan tersimpan beserta payload surat. Cetak dokumen atau unggah PDF pada form di bawah.');
     } catch (err) {
       if (err instanceof SavedRecordRefreshError) { setDb(recoverSavedRecord(db, err)); setValues(err.record as Letter); setSaved(true); }
       setError((err as Error).message);
@@ -53,15 +59,26 @@ export function LetterEditor({ letter, caseId, onBack }: { letter?: Letter; case
         <Field label="Status surat"><select value={values.status} onChange={e => update('status', e.target.value)}><option>Aktif</option><option>Draft</option><option>Selesai</option><option>Dicabut</option></select></Field>
         <Field label="Tanggal terbit" required><input type="date" value={values.issuedAt} onChange={e => update('issuedAt', e.target.value)} required/></Field>
         <Field label="Tempat" required><input value={values.place} onChange={e => update('place', e.target.value)} required/></Field>
-        <Field label="Petugas / penerima kuasa" required><select value={values.personnelId} disabled={relationLocked} onChange={e => update('personnelId', e.target.value)} required><option value="">Pilih petugas</option>{db.personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+        <Field label="Mitra DC / petugas penagih" required hint="Mitra DC tampil lebih dahulu sebagai penagih."><select value={values.personnelId} disabled={relationLocked} onChange={e => update('personnelId', e.target.value)} required><option value="">Pilih petugas penagih</option><optgroup label="Mitra DC (penagih)">{mitraDc.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>{karyawan.length > 0 && <optgroup label="Karyawan">{karyawan.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>}</select></Field>
         <Field label="Penandatangan agensi" required><input value={values.signer} onChange={e => update('signer', e.target.value)} required/></Field>
         <Field label={isMulti ? 'Jabatan / perwakilan klien' : 'Nama pemberi kuasa'} required className="span-2"><input value={values.clientRepresentative} onChange={e => update('clientRepresentative', e.target.value)} required/></Field>
         {!isMulti && <Field label="Alamat pemberi kuasa" required className="span-2"><textarea rows={2} value={values.clientAddress} onChange={e => update('clientAddress', e.target.value)} required/></Field>}
         <Field label="Berlaku sampai (Opsional)"><input type="date" min={values.issuedAt} value={values.validUntil || ''} onChange={e => update('validUntil', e.target.value)}/></Field>
+        <div className="letter-angsuran-block">
+          <div className="customer-section-title"><h3><Coins size={14}/>Rincian angsuran debitur</h3><span className="letter-angsuran-source">Otomatis dari data debitur & pembayaran kasus</span></div>
+          <div className="form-grid letter-angsuran-grid">
+            <Field label="Angsuran / bulan" hint="Besar angsuran per bulan."><div className="locked-input"><input value={rupiahSurat(angsuran.angsuranBulan)} readOnly aria-readonly="true"/><LockKeyhole size={13}/></div></Field>
+            <Field label="Angsuran belum dibayar" hint={angsuran.jumlahAngsuranBelumDibayar ? `Setara ${angsuran.jumlahAngsuranBelumDibayar}x angsuran.` : 'Seluruh angsuran tercatat lunas.'}><div className="locked-input"><input value={rupiahSurat(angsuran.sisaAngsuran)} readOnly aria-readonly="true"/><LockKeyhole size={13}/></div></Field>
+            <Field label="Denda"><div className="locked-input"><input value={rupiahSurat(angsuran.denda)} readOnly aria-readonly="true"/><LockKeyhole size={13}/></div></Field>
+            <Field label="Jatuh tempo terakhir" hint="Tanggal pembayaran terakhir."><div className="locked-input"><input value={angsuran.jatuhTempoTeks || angsuran.jatuhTempo || 'Belum ada tanggal'} readOnly aria-readonly="true"/><LockKeyhole size={13}/></div></Field>
+            <Field label="Hari keterlambatan" hint={`Dihitung sampai ${angsuran.acuanKeterlambatan}.`}><div className="locked-input"><input value={`${angsuran.hariKeterlambatan} hari`} readOnly aria-readonly="true"/><LockKeyhole size={13}/></div></Field>
+          </div>
+        </div>
         <Field label="Catatan update SK" hint="Isi perkembangan untuk memperbarui reminder laporan."><textarea rows={2} maxLength={2000} value={values.updateNote || ''} onChange={e => update('updateNote', e.target.value)}/></Field>
         {error && <div className="form-error span-2" role="alert"><AlertCircle size={15}/>{error}</div>}
       </div><footer className="letter-form-footer"><span className={`letter-save-status ${saved ? 'saved' : ''}`}><span/>{saved ? 'Penugasan tersimpan' : 'Belum disimpan'}</span><div className="letter-save-actions"><a href={LETTER_GENERATOR_URL} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="button button-secondary"><ExternalLink size={15}/>Buka Generator Surat</a><button type="submit" className="button button-primary" disabled={working || !values.caseId}>{busy ? <Spinner/> : <Save size={15}/>} {busy ? 'Menyimpan...' : 'Simpan Penugasan'}</button></div></footer></fieldset>
     </form>
+    <LetterPayloadPanel result={payload}/>
     <LetterPdfUpload letter={storedLetter} disabled={busy || !saved} onBusyChange={setPdfBusy} onUploaded={updated => setValues(updated)}/>
   </div>;
 }
